@@ -42,6 +42,12 @@
     <ClInclude Include="Atlas.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="Characters.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Enemies.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -72,6 +78,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="Animation.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Characters.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Enemies.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

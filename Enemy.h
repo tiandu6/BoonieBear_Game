@@ -1,5 +1,6 @@
 #pragma once
 #include <iostream>
+#include <vector>
 #include <easyx.h>
 #include "Animation.h"
 #include "common.h"
@@ -7,36 +8,49 @@
 #include "Player.h"
 using namespace std;
 
-// 敌人实体类
+// 敌人虚基类
 class Enemy
 {
 public:
     Enemy();
-    ~Enemy();
-    // 检测子弹与敌人的碰撞
-    bool CheckBulletCollision(const Bullet& bullet);
-    // 检测玩家与敌人的碰撞
-    bool CheckPlayerCollision(const Player& player);
-    // 敌人朝向玩家移动
-    void Move(const Player& player);
-    // 绘制敌人（含动画、阴影）
-    void Draw(int delta);
-    // 敌人受击处理
-    void Hurt();
-    // 判断敌人是否存活
+    virtual ~Enemy(); // 必须是虚析构函数，防止子类内存泄漏！
+
+    virtual bool CheckBulletCollision(const Bullet& bullet);
+    virtual bool CheckPlayerCollision(const Player& player);
+
+    // 【修改】：加入 vector 引用，为了让 Boss 可以在移动时召唤小弟塞进列表
+    virtual void Move(const Player& player, vector<Enemy*>& enemy_list);
+    virtual void Draw(int delta);
+    virtual bool Hurt(int damage, const POINT& source_pos);
+
     bool CheckAlive();
+    void SetPosition(POINT p); // 暴露坐标设置接口
 
-private:
-    // 敌人帧尺寸、阴影宽度、移动速度
-    const int FRAME_WIDTH = 80;
-    const int FRAME_HEIGHT = 80;
-    const int SHADOW_WIDTH = 65;
-    const int SPEED = 2;
+    bool is_boss = false; // 标记是否为 Boss
 
-    IMAGE img_shadow;          // 敌人阴影图片
-    Animation* anim_left;      // 向左的动画
-    Animation* anim_right;     // 向右的动画
-    POINT pos = { 0,0 };       // 敌人当前坐标
-    bool facing_left = false;  // 敌人朝向：是否向左
-    bool alive = true;         // 存活状态
+protected:
+    // 将原来写死的 const 变成 protected 变量，让子类继承并修改
+    int frame_width = 80;
+    int frame_height = 80;
+    int shadow_width = 65;
+    double speed = 2.0;
+
+    // 敌人通用的阴影偏移量，默认值为 15
+    int shadow_offset_value = 15;
+    int shadow_offset_y = 15;     // Y 轴向上偏移量（默认 15）
+
+    IMAGE img_shadow;
+    Animation* anim_left = nullptr;
+    Animation* anim_right = nullptr;
+    POINT pos = { 0,0 };
+    bool facing_left = false;
+    bool alive = true;
+
+    int hp = 2;
+    int max_hp = 2;
+    DWORD last_hurt_time = 0;
+
+    DWORD knockback_end_time = 0;
+    double knockback_vx = 0;
+    double knockback_vy = 0;
 };

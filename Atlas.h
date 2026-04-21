@@ -8,8 +8,8 @@ using namespace std;
 class Atlas
 {
 public:
-    // 构造函数：path为图片路径模板（含%d），num为帧数量，width/height为帧尺寸（0则用原图尺寸）
-    Atlas(LPCTSTR path, int num, int width = 0, int height = 0);
+    // 构造函数：path为图片路径模板（含%d），num为帧数量，width/height为帧尺寸（0则用原图尺寸），flip_h为是否水平翻转
+    Atlas(LPCTSTR path, int num, int width = 0, int height = 0, bool flip_h = false);
     ~Atlas();
 
 public:
