@@ -1,52 +1,52 @@
 #include "Bullet.h"
+#include <cmath>
 
-// 绘制子弹特效
+// 渲染子弹对象及关联的视觉特效
 void Bullet::Draw() const
 {
-    // 1. 获取当前时间，用于制作所有动态特效的时间轴
+    // 获取当前系统时间作为动画波动计算的基准参考系
     DWORD current_time = GetTickCount();
 
-    // 2. 呼吸脉冲缩放 (Pulsing Effect)
-    // 利用 sin 函数生成 -2 到 +2 之间的周期性波动，让子弹看起来在“呼吸”
+    // 缩放波动效果计算
+    // 通过正弦函数生成基于时间的循环周期波动参数 [-2.0, 2.0]
     double pulse_offset = sin(current_time / 100.0) * 2.0;
 
-    // 假设基础半径为 12（你可以根据实际碰撞大小调整这个基础值）
+    // 结合基础半径计算当前渲染半径
     int current_radius = 12 + (int)pulse_offset;
 
-    // 为了防止重叠绘制时出现难看的边线，先取消线框
+    // 禁用边框线渲染，避免多层覆盖时出现轮廓伪影
     setlinestyle(PS_SOLID, 1);
 
-    // ================== 多层光晕渲染 ==================
+    // 渲染分层光源效果
 
-    // 第一层：最外层的微弱光晕 (蜂蜜深橙色，范围最大)
+    // 图层 1：外部泛光层 (最大影响半径)
     setlinecolor(RGB(200, 100, 0));
     setfillcolor(RGB(180, 80, 0));
     fillcircle(pos.x, pos.y, current_radius + 6);
 
-    // 第二层：中层高亮光环 (明黄偏橙，主色调)
+    // 图层 2：中层过渡光环 
     setlinecolor(RGB(255, 180, 20));
     setfillcolor(RGB(240, 150, 10));
     fillcircle(pos.x, pos.y, current_radius + 2);
 
-    // 第三层：内核高光 (纯白色，体现能量的高热感)
+    // 图层 3：内部核心高光层
     setlinecolor(RGB(255, 255, 255));
     setfillcolor(RGB(255, 255, 255));
     fillcircle(pos.x, pos.y, current_radius - 4);
 
 
-    // ================== 动态环绕粒子特效 ==================
-    // 利用 cos 和 sin 让两个小粒子围绕子弹核心高速旋转！
-    // 旋转速度通过 current_time / 50.0 控制
+    // 渲染环绕粒子附属特效
+    // 根据系统时间差结合三角函数，实时计算粒子的运动轨迹坐标
 
-    // 粒子 1
+    // 粒子单元 1 运动计算
     int p1_x = pos.x + (int)(cos(current_time / 50.0) * (current_radius + 10));
     int p1_y = pos.y + (int)(sin(current_time / 50.0) * (current_radius + 10));
 
-    // 粒子 2 (跟粒子1相差 180度，即 PI，这里用 3.1415)
+    // 粒子单元 2 运动计算 (相位差设定为 180 度即 PI)
     int p2_x = pos.x + (int)(cos(current_time / 50.0 + 3.1415) * (current_radius + 10));
     int p2_y = pos.y + (int)(sin(current_time / 50.0 + 3.1415) * (current_radius + 10));
 
-    // 画出这两个金色的伴星小粒子
+    // 执行粒子单元渲染
     setlinecolor(RGB(255, 255, 100));
     setfillcolor(RGB(255, 255, 100));
     fillcircle(p1_x, p1_y, 3);

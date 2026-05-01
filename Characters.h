@@ -1,23 +1,31 @@
 #pragma once
 #include "Player.h"
 
-// 派生类：熊大（重装战士）
+// 继承自 Player 的各独立游戏角色派生类声明
+
 class XiongDa : public Player
 {
 public:
     XiongDa();
+    void UpdateAttacks() override;
+    void DrawAttacks() override;
+    void UseSkill(vector<Enemy*>& enemy_list) override;
 };
 
-// 派生类：熊二（敏捷刺客）
 class XiongEr : public Player
 {
 public:
     XiongEr();
+    void UpdateAttacks() override;
+    void DrawAttacks() override;
+    void UseSkill(vector<Enemy*>& enemy_list) override;
 };
 
-// 派生类：光头强（狂战士）
 class GuangtouQiang : public Player
 {
 public:
     GuangtouQiang();
-}; 
+    void UpdateAttacks() override;
+    void DrawAttacks() override;
+    void UseSkill(vector<Enemy*>& enemy_list) override;
+};

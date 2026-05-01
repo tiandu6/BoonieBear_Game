@@ -1,16 +1,16 @@
 #include "Atlas.h"
 
-// 加载图集：按路径模板批量加载帧图片（支持代码级水平翻转）
+// 构造函数：按模板路径批量加载序列帧数据，并支持水平翻转预处理
 Atlas::Atlas(LPCTSTR path, int num, int width, int height, bool flip_h)
 {
     TCHAR path_file[256];
     for (size_t i = 0; i < num; i++)
     {
-        // 格式化路径（替换%d为帧序号）
+        // 格式化文件路径以匹配当前帧序号
         _stprintf_s(path_file, path, i);
 
         IMAGE* frame = new IMAGE();
-        // 指定尺寸则按尺寸加载，否则用原图尺寸，启用透明
+        // 根据指定尺寸执行图像加载逻辑，并默认开启透明度计算
         if (width > 0 && height > 0) {
             loadimage(frame, path_file, width, height, true);
         }
@@ -18,24 +18,24 @@ Atlas::Atlas(LPCTSTR path, int num, int width, int height, bool flip_h)
             loadimage(frame, path_file);
         }
 
-        // 【新增硬核操作】：如果要求翻转，则直接操作底层像素显存！
+        // 图像预处理逻辑：通过显存层级进行像素级水平翻转
         if (flip_h)
         {
             int w = frame->getwidth();
             int h = frame->getheight();
-            // 获取 EasyX 图像底层的显存指针（每个元素是一个 DWORD，即 ARGB 四通道像素点）
+            // 获取图像显存数据缓冲指针 (包含 ARGB 四通道数据)
             DWORD* buffer = GetImageBuffer(frame);
 
-            // 遍历图像的每一行
+            // 遍历像素矩阵
             for (int y = 0; y < h; y++)
             {
-                // 只遍历半行，将左边和右边对称位置的像素互换
+                // 对称交换左右两侧像素数据
                 for (int x = 0; x < w / 2; x++)
                 {
-                    int left_idx = y * w + x;                 // 左侧像素的数组下标
-                    int right_idx = y * w + (w - 1 - x);      // 对应的右侧对称像素的数组下标
+                    int left_idx = y * w + x;
+                    int right_idx = y * w + (w - 1 - x);
 
-                    // 交换像素值（完美保留颜色和 Alpha 透明度）
+                    // 执行像素级内存交换操作 (保留颜色及 Alpha 属性)
                     DWORD temp = buffer[left_idx];
                     buffer[left_idx] = buffer[right_idx];
                     buffer[right_idx] = temp;
@@ -47,7 +47,7 @@ Atlas::Atlas(LPCTSTR path, int num, int width, int height, bool flip_h)
     }
 }
 
-// 释放所有帧图片资源
+// 析构函数：清理图集缓存占用的内存资源
 Atlas::~Atlas()
 {
     for (size_t i = 0; i < frame_list.size(); i++)

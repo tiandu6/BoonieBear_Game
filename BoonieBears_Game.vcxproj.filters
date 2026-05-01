@@ -48,6 +48,12 @@
     <ClInclude Include="Enemies.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="weapon.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="OrbitalStrike.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -84,6 +90,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="Enemies.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="weapon.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="OrbitalStrike.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

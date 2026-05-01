@@ -2,20 +2,26 @@
 
 Player::Player()
 {
-    // 基类只负责加载通用的阴影，不再加载具体的角色动画
+    // 加载角色通用脚下阴影素材
     loadimage(&img_shadow, _T("img/shadow_player.png"), SHADOW_WIDTH, 25, true);
+
+    // 初始化技能冷却状态机，使其在生成时处于立即可用状态
+    last_skill_time = GetTickCount() - SKILL_CD;
 }
 
 Player::~Player()
 {
-    // 虚析构函数释放动画资源
     if (anim_left) delete anim_left;
     if (anim_right) delete anim_right;
+
+    // 清理实体挂载的武器组件实例
+    if (current_weapon) delete current_weapon;
 }
 
-// 处理玩家输入事件（支持方向键和 WASD）
+// 事件接收与状态机分发器
 void Player::ProcessEvent(const ExMessage& msg)
 {
+    // 处理方向键与移动指令下达
     if (msg.message == WM_KEYDOWN)
     {
         switch (msg.vkcode)
@@ -38,6 +44,7 @@ void Player::ProcessEvent(const ExMessage& msg)
             break;
         }
     }
+    // 处理方向键与移动指令释放
     else if (msg.message == WM_KEYUP)
     {
         switch (msg.vkcode)
@@ -62,14 +69,13 @@ void Player::ProcessEvent(const ExMessage& msg)
     }
 }
 
-// 玩家移动逻辑（含边界限制）
+// 物理移动更新结算器
 void Player::Move()
 {
-    // 计算移动方向向量（x：右-左，y：下-上）
     int dir_x = is_move_right - is_move_left;
     int dir_y = is_move_down - is_move_up;
 
-    // 向量归一化，避免斜向移动速度过快
+    // 提取移动方向向量并执行归一化，规避对角线移动带来的速度放大偏移
     double len_dir = sqrt(dir_x * dir_x + dir_y * dir_y);
     if (len_dir != 0)
     {
@@ -79,7 +85,7 @@ void Player::Move()
         pos.y += (int)(speed * normalized_y);
     }
 
-    // 边界限制：防止玩家移出屏幕
+    // 钳制视口边界坐标，阻止实体穿透屏幕
     if (pos.x < 0)
         pos.x = 0;
     if (pos.y < 0)
@@ -90,10 +96,9 @@ void Player::Move()
         pos.y = WINDOW_HEIGHT - FRAME_HEIGHT;
 }
 
-// 绘制玩家（阴影+动画+死亡特效）
+// 执行实体图元渲染及特效图层混合
 void Player::Draw(int delta)
 {
-    // 使用类成员变量 facing_left 记录朝向
     if (delta > 0 && !is_dead)
     {
         int dir_x = is_move_right - is_move_left;
@@ -101,11 +106,9 @@ void Player::Draw(int delta)
         else if (dir_x > 0) facing_left = false;
     }
 
-    // 【修改 2：加入阴影偏移逻辑】
-    // 计算阴影绘制坐标
+    // 同步执行阴影坐标计算与多态角色模型贴图中心对齐偏移校准
     int pos_shadow_x = pos.x + (FRAME_WIDTH / 2 - SHADOW_WIDTH / 2);
 
-    // 根据朝向动态调整阴影X轴偏移（使用类成员变量，支持不同角色多态定制）
     if (facing_left) {
         pos_shadow_x += shadow_offset_value;
     }
@@ -116,8 +119,7 @@ void Player::Draw(int delta)
     int pos_shadow_y = pos.y + 100;
     putimage_alpha(pos_shadow_x, pos_shadow_y, &img_shadow);
 
-    // ================= 1. 绘制脚下血条（死亡时隐藏） =================
-    // 增加了 is_game_started 判断，只有正式进游戏后才显示血条
+    // 渲染存活状态下属的生命槽 UI 组件
     if (!is_dead && is_game_started)
     {
         int bar_width = 70;
@@ -138,80 +140,75 @@ void Player::Draw(int delta)
         }
     }
 
-    // 设置基础绘制坐标与时间戳
     int draw_x = pos.x - 35;
     int draw_y = pos.y - 35;
     DWORD current_time = GetTickCount();
 
-    // ================= 2. 死亡动画特效分支 (史诗级强化版) =================
+    // 挂载阵亡阶段生命周期的相关特效渲染流
     if (is_dead)
     {
         DWORD elapsed = current_time - death_start_time;
         int center_x = pos.x + FRAME_WIDTH / 2;
         int center_y = pos.y + FRAME_HEIGHT / 2;
 
-        // 【特效 A：高能能量波释放】(向外急速扩散的巨大双重冲击波)
+        // 特效序列 1：执行高强度向外扩散式激波图形混合计算
         if (elapsed < 800) {
             double wave_progress = elapsed / 800.0;
-            int wave_radius = (int)(wave_progress * 600); // 半径扩散到 600 像素
+            int wave_radius = (int)(wave_progress * 600);
 
-            // 外层红色警戒波
-            setlinestyle(PS_SOLID, max(1, 20 - (int)(wave_progress * 20))); // 线条随时间变细消失
+            setlinestyle(PS_SOLID, max(1, 20 - (int)(wave_progress * 20)));
             setlinecolor(RGB(255, 50, 50));
             circle(center_x, center_y, wave_radius);
 
-            // 内层金色能量波
             setlinestyle(PS_SOLID, max(1, 10 - (int)(wave_progress * 10)));
             setlinecolor(RGB(255, 200, 50));
             circle(center_x, center_y, (int)(wave_radius * 0.8));
 
-            setlinestyle(PS_SOLID, 1); // 恢复默认线宽
+            setlinestyle(PS_SOLID, 1);
         }
 
-        // 【新增】：单独计算出身体下沉的距离
+        // 推演刚体下坠相关的 Y 轴沉降偏置距离
         int body_drop = min((int)(elapsed / 10), 120);
 
-        // 【特效 B：角色剧烈抽搐与滑落】
+        // 引入高频震颤效果
         if (elapsed < 1000) {
-            draw_x += (rand() % 21 - 10); // 极其剧烈的左右震荡
-            draw_y += (rand() % 11 - 5);  // 上下微震
+            draw_x += (rand() % 21 - 10);
+            draw_y += (rand() % 11 - 5);
         }
-        draw_y += body_drop; // 身体沉重下坠，倒在地上
+        draw_y += body_drop;
 
-        // 绘制静止的角色本体
         if (facing_left) anim_left->Play(draw_x, draw_y, 0);
         else anim_right->Play(draw_x, draw_y, 0);
 
-        // 【特效 C：漫天飞舞的蜂蜜大爆浆】(粒子数量加倍，模拟真实的物理抛物线)
+        // 特效序列 2：通过重力函数模拟漫射抛物线物理飞溅粒子组
         if (elapsed < 2500) {
-            for (int i = 0; i < 20; i++) { // 爆出 20 滴大小不一的蜂蜜
+            for (int i = 0; i < 20; i++) {
                 double angle = i * (3.14159 * 2.0 / 20.0);
-                double speed = 1.0 + (i % 4) * 0.6; // 不同的初速度产生层次感
-                double radius = min((double)elapsed * speed, 350.0); // 向外狂喷
+                double speed = 1.0 + (i % 4) * 0.6;
+                double radius = min((double)elapsed * speed, 350.0);
 
-                // 重力抛物线下坠模拟
+                // Y轴补偿模拟引力带来的自由落体行为
                 double drop_y = (elapsed > 100) ? ((elapsed - 100) * (elapsed - 100) / 700.0) : 0;
 
                 int px = center_x + (int)(radius * cos(angle));
                 int py = center_y + (int)(radius * sin(angle)) + (int)drop_y;
 
-                // 触地物理效果模拟（不会掉出屏幕下面）
                 if (py > pos.y + FRAME_HEIGHT + 50) py = pos.y + FRAME_HEIGHT + 50;
 
-                int size = max(1, 12 - (int)(elapsed / 200) + (i % 3)); // 粒子随时间蒸发变小
+                int size = max(1, 12 - (int)(elapsed / 200) + (i % 3));
                 if (elapsed < 2000) {
                     setlinecolor(RGB(255, 120, 0));
-                    setfillcolor((i % 2 == 0) ? RGB(255, 200, 50) : RGB(255, 150, 0)); // 颜色交错
+                    setfillcolor((i % 2 == 0) ? RGB(255, 200, 50) : RGB(255, 150, 0));
                     fillcircle(px, py, size);
                 }
             }
         }
 
-        // 【特效 D：五星连珠眩晕效果】
+        // 特效序列 3：计算螺旋晕眩星光粒子相对坐标
         for (int i = 0; i < 5; i++) {
             double angle = (elapsed / 80.0) + (i * 1.256);
             int star_x = center_x + (int)(55 * cos(angle));
-            // 【修改】：在 Y 坐标上加上 body_drop，让星星跟着身体一起滑落！
+            // 同步模型受重力下落的 Y 轴相对坐标联动
             int star_y = center_y - 70 + body_drop + (int)(20 * sin(angle));
 
             COLORREF star_color = (elapsed / 40 % 2 == 0) ? RGB(255, 255, 0) : RGB(255, 50, 50);
@@ -220,16 +217,14 @@ void Player::Draw(int delta)
             fillcircle(star_x, star_y, 6 + (i % 2) * 2);
         }
 
-        // 【特效 E：灵魂遗言飘字】
+        // 特效序列 4：执行遗言文字图形渐变展现
         if (elapsed < 3000) {
             int text_y = center_y - 100 - (int)(elapsed / 12);
             settextstyle(36, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
             setbkmode(TRANSPARENT);
 
-            // 【修改】：删掉了原来的硬编码，直接使用当前角色对象的 dead_text 成员变量
             int text_w = textwidth(dead_text);
 
-            // 黑底白字，增加戏剧冲击力
             settextcolor(RGB(20, 20, 20));
             outtextxy(center_x - text_w / 2 + 3, text_y + 3, dead_text);
             settextcolor(RGB(255, 255, 255));
@@ -237,31 +232,43 @@ void Player::Draw(int delta)
         }
     }
 
-    // ================= 3. 正常存活绘制分支 =================
     else
     {
         bool is_invulnerable = (current_time - last_hurt_time < 500);
+        bool should_flicker_hide = false;
 
-        // 正常受击震动 (Jitter)
-        if (is_invulnerable && (current_time - last_hurt_time < 200))
+        // 执行无敌安全期帧缓冲(i-frame)剔除逻辑以表现半透明闪烁效果
+        if (is_invulnerable)
         {
-            draw_x += (rand() % 11 - 5);
-            draw_y += (rand() % 11 - 5);
+            if ((current_time / 50) % 2 == 0)
+            {
+                should_flicker_hide = true;
+            }
         }
 
-        if (facing_left) anim_left->Play(draw_x, draw_y, delta);
-        else anim_right->Play(draw_x, draw_y, delta);
-
-        // 正常受击高光 (Hit Flash)
-        if (current_time - last_hurt_time < 150)
+        if (!should_flicker_hide)
         {
-            setlinecolor(RGB(255, 50, 50));
-            setfillcolor(RGB(200, 30, 30));
-            fillcircle(pos.x + FRAME_WIDTH / 2, pos.y + FRAME_HEIGHT / 2 + 10, 35);
+            // 加入由于物理冲击导致的坐标抖动位移补偿
+            if (is_invulnerable && (current_time - last_hurt_time < 200))
+            {
+                draw_x += (rand() % 11 - 5);
+                draw_y += (rand() % 11 - 5);
+            }
+
+            if (facing_left) anim_left->Play(draw_x, draw_y, delta);
+            else anim_right->Play(draw_x, draw_y, delta);
+
+            // 绘制承伤高光爆发视觉滤镜图层
+            if (current_time - last_hurt_time < 150)
+            {
+                setlinecolor(RGB(255, 50, 50));
+                setfillcolor(RGB(200, 30, 30));
+                fillcircle(pos.x + FRAME_WIDTH / 2, pos.y + FRAME_HEIGHT / 2 + 10, 35);
+            }
         }
     }
 
-    // ================= 4. 浮动伤害数字 (致命一击的数字也要飘完) =================
+    // 更新飘字系统的 Y 轴飘移动画状态
     if (is_popup_active)
     {
         DWORD elapsed = current_time - popup_start_time;
@@ -290,7 +297,6 @@ void Player::Draw(int delta)
 }
 
 
-// 获取玩家当前坐标（只读）
 const POINT& Player::GetPosition() const
 {
     return pos;
@@ -308,23 +314,26 @@ int Player::GetHP() const
 
 void Player::TakeDamage(int damage)
 {
-    if (is_dead) return; // 如果已经死了，就不再重复受击
+    if (is_dead) return;
 
-    // 0.5秒的受击无敌帧，防止连续扣血暴毙
     DWORD current_time = GetTickCount();
+    // 拦截无敌缓冲帧内的连续重叠伤害判定逻辑
     if (current_time - last_hurt_time > 500)
     {
-        hp -= damage;
+        // 挂载防具组件相关的基础减伤数值拦截运算机制
+        int final_damage = damage - (int)(damage * damage_reduction);
+        if (final_damage < 1 && damage > 0) final_damage = 1;
+
+        hp -= final_damage;
         last_hurt_time = current_time;
 
-        // 触发浮动伤害数字
-        popup_damage = damage;
+        // 推送受击数值队列以生成浮空状态表现
+        popup_damage = final_damage;
         popup_pos.x = pos.x + FRAME_WIDTH / 2;
         popup_pos.y = pos.y - 20;
         popup_start_time = current_time;
         is_popup_active = true;
 
-        // 【新增】：检测死亡并触发死亡动画时间轴
         if (hp <= 0)
         {
             hp = 0;
@@ -334,7 +343,7 @@ void Player::TakeDamage(int damage)
     }
 }
 
-// 重置玩家状态（用于再来一局）
+// 供全局状态控制器调用的主环境状态及依赖清理过程
 void Player::Reset()
 {
     hp = max_hp;
@@ -346,15 +355,28 @@ void Player::Reset()
     is_popup_active = false;
     last_hurt_time = 0;
 
-    //重置死亡状态
     is_dead = false;
     death_start_time = 0;
 
-    // 重置朝向为默认的朝右
     facing_left = false;
+
+    last_skill_time = GetTickCount() - SKILL_CD;
+    skill_end_time = 0;
+
+    if (current_weapon)
+    {
+        current_weapon->Reset();
+    }
+
+    level = 1;
+    exp = 0;
+    max_exp = 5;
+    SKILL_CD = 8000;
+
+    damage_reduction = 0.0;
+    orbital_skill.Reset();
 }
 
-// 【新增】：坐标设置函数
 void Player::SetPosition(POINT p)
 {
     pos = p;
@@ -363,4 +385,80 @@ void Player::SetPosition(POINT p)
 int Player::GetAttackDamage() const
 {
     return attack_damage;
+}
+
+vector<Bullet>& Player::GetBullets()
+{
+    return current_weapon->GetBullets();
+}
+
+void Player::UpdateAttacks()
+{
+    if (current_weapon)
+    {
+        bool is_skill_active = (GetTickCount() < skill_end_time);
+        current_weapon->Update(pos, facing_left, FRAME_WIDTH, FRAME_HEIGHT, is_skill_active);
+    }
+}
+void Player::DrawAttacks()
+{
+    if (current_weapon)
+    {
+        bool is_skill_active = (GetTickCount() < skill_end_time);
+        current_weapon->Draw(pos, facing_left, FRAME_WIDTH, FRAME_HEIGHT, is_skill_active);
+    }
+}
+void Player::UseSkill(vector<Enemy*>& enemy_list) {}
+
+// 当场景处于被挂起或拦截操作状态时提供内部计时器偏移的同步校准能力
+void Player::AddPauseTime(DWORD pause_duration)
+{
+    last_skill_time += pause_duration;
+    if (skill_end_time > 0) skill_end_time += pause_duration;
+    if (last_hurt_time > 0) last_hurt_time += pause_duration;
+    if (popup_start_time > 0) popup_start_time += pause_duration;
+    if (death_start_time > 0) death_start_time += pause_duration;
+}
+
+// 事件派发：处理局内增益属性池升级配置注入
+void Player::ApplyUpgrade(int upgrade_id)
+{
+    switch (upgrade_id)
+    {
+    case 0:
+        max_hp += 20;
+        hp += 20;
+        break;
+    case 1:
+        attack_damage += 1;
+        break;
+    case 2:
+        speed += 1;
+        break;
+    case 3:
+        hp += (max_hp / 2);
+        if (hp > max_hp) hp = max_hp;
+        break;
+    case 4:
+        SKILL_CD = (int)(SKILL_CD * 0.8);
+
+        if (SKILL_CD < 1000)
+        {
+            SKILL_CD = 1000;
+        }
+        break;
+    case 5:
+        damage_reduction += 0.20;
+        if (damage_reduction > 0.80) damage_reduction = 0.80;
+        break;
+    case 6:
+        orbital_skill.Upgrade();
+        break;
+    }
+}
+
+// 主动发起对外部可拓展武器与技能插槽更新派发的请求指令
+void Player::UpdateExtraSkills(vector<Enemy*>& enemy_list)
+{
+    orbital_skill.Update(enemy_list, attack_damage, pos);
 }

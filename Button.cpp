@@ -1,15 +1,15 @@
 #include "Button.h"
 
-// 按钮初始化：加载各状态图片并设置区域
+// 构造函数：解析按钮区域参数，加载多态交互贴图数据
 Button::Button(RECT rect, LPCTSTR path_img_idle, LPCTSTR path_img_hovered, LPCTSTR path_img_pushed)
 {
     region = rect;
 
-    // 计算按钮宽高
+    // 解析按钮控件尺寸属性
     int width = region.right - region.left;
     int height = region.bottom - region.top;
 
-    // 加载按钮图片，指定尺寸并启用透明
+    // 根据指定尺寸映射加载各交互状态下的图像数据
     loadimage(&img_idle, path_img_idle, width, height, true);
     loadimage(&img_hovered, path_img_hovered, width, height, true);
     loadimage(&img_pushed, path_img_pushed, width, height, true);
@@ -17,25 +17,25 @@ Button::Button(RECT rect, LPCTSTR path_img_idle, LPCTSTR path_img_hovered, LPCTS
 
 Button::~Button() = default;
 
-// 处理按钮的鼠标事件
+// 事件分发器：处理鼠标交互状态机切换
 void Button::ProcessEvent(const ExMessage& msg)
 {
     switch (msg.message)
     {
     case WM_MOUSEMOVE:
-        // 鼠标移入/移出：切换悬浮/闲置状态
+        // 处理悬浮态变迁
         if (status == Status::Idle && CheckCursorHit(msg.x, msg.y))
             status = Status::Hovered;
         else if (status == Status::Hovered && !CheckCursorHit(msg.x, msg.y))
             status = Status::Idle;
         break;
     case WM_LBUTTONDOWN:
-        // 鼠标按下：切换为按下状态
+        // 处理点击按下态变迁
         if (CheckCursorHit(msg.x, msg.y))
             status = Status::Pushed;
         break;
     case WM_LBUTTONUP:
-        // 鼠标抬起：触发点击回调（仅当按下状态时）
+        // 处理释放与触发回调
         if (status == Status::Pushed)
             OnClick();
         break;
@@ -44,7 +44,7 @@ void Button::ProcessEvent(const ExMessage& msg)
     }
 }
 
-// 绘制按钮：根据当前状态选择对应图片
+// 渲染器：依据当前状态机输出对应映射贴图
 void Button::Draw()
 {
     switch (status)
@@ -61,7 +61,7 @@ void Button::Draw()
     }
 }
 
-// 检测鼠标坐标是否在按钮区域内
+// 碰撞检测逻辑：校验输入坐标点是否置于按钮响应域内
 bool Button::CheckCursorHit(int x, int y)
 {
     return x >= region.left && x <= region.right && y >= region.top && y <= region.bottom;
