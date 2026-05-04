@@ -14,24 +14,21 @@
 #include "Enemies.h"
 using namespace std;
 
-// 分配内存经验单元实体构型
+// 经验球数据结构：存储掉落经验球的二维空间坐标及当前是否可被拾取的活跃状态
 struct ExpDrop
 {
     double x, y;
     bool active = true;
 };
 
-// 实例化的全局骨骼序列图集指针引用
-Atlas* atlas_player_left = nullptr;
-Atlas* atlas_player_right = nullptr;
-Atlas* atlas_enemy_left = nullptr;
-Atlas* atlas_enemy_right = nullptr;
-
-// 动态控制分配调度敌对派生实体的生成频率与分布比例
+// 敌人生成器核心逻辑
+// 根据当前的游戏阶段 (current_phase)、游戏难度 (current_difficulty) 以及时间间隔，动态在屏幕边缘生成不同种类的敌人
 void TryGenerateEnemy(vector<Enemy*>& enemy_list, int current_phase, bool& boss_spawned)
 {
-    int interval = 150;
-    size_t max_enemies = 8;
+    int interval = 150;     // 默认生成时间间隔（帧数）
+    size_t max_enemies = 8; // 默认同屏最大敌人数量
+
+    // 依据难度枚举，动态调节生成频率与同屏数量上限
     if (current_difficulty == Difficulty::Easy)
     {
         interval = 200; max_enemies = 4;
@@ -45,16 +42,27 @@ void TryGenerateEnemy(vector<Enemy*>& enemy_list, int current_phase, bool& boss_
         interval = 60; max_enemies = 15;
     }
 
+    // 如果是双人模式，怪物生成速度加快 30%，同屏最大怪物数量提升 50%
+    if (game_mode == 2)
+    {
+        interval = (int)(interval * 0.7);
+        max_enemies = (size_t)(max_enemies * 1.5);
+    }
+
+    // 阶段3（最终阶段）：若 Boss 尚未生成，则强制在怪物列表中压入一个 Boss 实体
     if (current_phase == 3 && !boss_spawned) {
         enemy_list.push_back(new BossEnemy());
         boss_spawned = true;
     }
 
+    // 性能与难度控制：若当前同屏怪物数量已达上限，则跳过本次生成
     if (enemy_list.size() >= max_enemies) return;
 
+    // 静态计数器：用于累计游戏循环的调用次数，当达到 interval 设定的阈值时触发一次生成
     static int counter = 0;
     if ((++counter) % interval == 0)
     {
+        // 阶段 2 及以上时，有 30% 概率生成血厚移速快的“机械怪”
         if (current_phase >= 2 && (rand() % 100 < 30)) {
             enemy_list.push_back(new MachineEnemy());
         }
@@ -64,21 +72,34 @@ void TryGenerateEnemy(vector<Enemy*>& enemy_list, int current_phase, bool& boss_
     }
 }
 
-
-// 分层驱动绘制界面数据叠加态 HUD 面板内容
-void DrawHUD(int score, int hp, int max_hp, int survival_time_sec)
+// 玩家实例工厂模式
+// 根据传入的角色类型枚举，利用多态特性动态分配对应的派生类（熊大、熊二、光头强）对象并返回
+Player* CreatePlayer(CharacterType type)
 {
+    if (type == CharacterType::XiongDa)
+        return new XiongDa();
+    if (type == CharacterType::XiongEr)
+        return new XiongEr();
+    return new GuangtouQiang();
+}
+
+// 统一绘制游戏内的 HUD (Head-Up Display) 面板
+// 包括：左上角分数、存活时间、动态自适应的双人血槽、右上角暂停按钮
+void DrawHUD(int score, const vector<Player*>& players, int survival_time_sec)
+{
+    // 1. 绘制总分数（底层黑色做阴影偏移，表层亮色做主体，增加文本立体感）
     static TCHAR score_text[64];
     _stprintf_s(score_text, _T("当前分数：%d"), score);
 
     settextstyle(32, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
-    setbkmode(TRANSPARENT);
+    setbkmode(TRANSPARENT); // 设置文字背景透明
 
     settextcolor(RGB(50, 50, 50));
     outtextxy(17, 17, score_text);
     settextcolor(RGB(255, 180, 20));
     outtextxy(15, 15, score_text);
 
+    // 2. 绘制存活时间
     static TCHAR time_text[64];
     _stprintf_s(time_text, _T("存活时间：%d 秒"), survival_time_sec);
     settextstyle(24, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
@@ -87,48 +108,57 @@ void DrawHUD(int score, int hp, int max_hp, int survival_time_sec)
     settextcolor(RGB(150, 200, 255));
     outtextxy(15, 55, time_text);
 
-    int bar_x = 15;
-    int bar_y = 95;
-    int bar_width = 300;
-    int bar_height = 28;
+    // 3. 动态适应同屏血槽布局渲染阵列（完美兼容单人/双人模式）
+    for (size_t i = 0; i < players.size(); i++) {
+        int hp = players[i]->GetHP();
+        int max_hp = players[i]->GetMaxHP();
+        int bar_x = 15;
+        int bar_y = 95 + i * 40; // 根据玩家索引向下偏移 Y 轴坐标，避免血槽重叠
+        int bar_width = 300;
+        int bar_height = 28;
 
-    setlinecolor(RGB(30, 30, 30));
-    setfillcolor(RGB(50, 50, 50));
-    fillroundrect(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 8, 8);
+        // 绘制血槽底色外框
+        setlinecolor(RGB(30, 30, 30));
+        setfillcolor(RGB(50, 50, 50));
+        fillroundrect(bar_x, bar_y, bar_x + bar_width, bar_y + bar_height, 8, 8);
 
-    if (hp > 0)
-    {
-        int fill_width = (int)((double)hp / max_hp * bar_width);
+        // 计算当前生命值占比，并绘制血量填充条
+        if (hp > 0)
+        {
+            int fill_width = (int)((double)hp / max_hp * bar_width);
 
-        COLORREF hp_color;
-        double hp_ratio = (double)hp / max_hp;
+            // 动态血量预警变色：>50%绿色，25%~50%黄色，<25%红色
+            COLORREF hp_color;
+            double hp_ratio = (double)hp / max_hp;
 
-        if (hp_ratio > 0.5)
-            hp_color = RGB(50, 220, 50);
-        else if (hp_ratio > 0.25)
-            hp_color = RGB(255, 200, 50);
-        else
-            hp_color = RGB(255, 50, 50);
+            if (hp_ratio > 0.5) hp_color = RGB(50, 220, 50);
+            else if (hp_ratio > 0.25) hp_color = RGB(255, 200, 50);
+            else hp_color = RGB(255, 50, 50);
 
-        setfillcolor(hp_color);
-        solidroundrect(bar_x + 1, bar_y + 1, bar_x + fill_width - 1, bar_y + bar_height - 1, 8, 8);
+            setfillcolor(hp_color);
+            solidroundrect(bar_x + 1, bar_y + 1, bar_x + fill_width - 1, bar_y + bar_height - 1, 8, 8);
+        }
+
+        // 绘制血量具体数字文本（双人模式下会标注 1P/2P）
+        TCHAR hp_text[64];
+        if (game_mode == 2) _stprintf_s(hp_text, _T("%dP HP: %d / %d"), i + 1, hp, max_hp);
+        else _stprintf_s(hp_text, _T("HP: %d / %d"), hp, max_hp);
+
+        settextstyle(20, 0, _T("Arial"), 0, 0, FW_BOLD, false, false, false);
+
+        // 计算文本居中渲染的位置
+        int text_w = textwidth(hp_text);
+        int text_h = textheight(hp_text);
+        int text_x = bar_x + (bar_width - text_w) / 2;
+        int text_y = bar_y + (bar_height - text_h) / 2;
+
+        settextcolor(RGB(30, 30, 30));
+        outtextxy(text_x + 2, text_y + 2, hp_text);
+        settextcolor(RGB(255, 255, 255));
+        outtextxy(text_x, text_y, hp_text);
     }
 
-    static TCHAR hp_text[64];
-    _stprintf_s(hp_text, _T("HP: %d / %d"), hp, max_hp);
-
-    settextstyle(20, 0, _T("Arial"), 0, 0, FW_BOLD, false, false, false);
-
-    int text_w = textwidth(hp_text);
-    int text_h = textheight(hp_text);
-    int text_x = bar_x + (bar_width - text_w) / 2;
-    int text_y = bar_y + (bar_height - text_h) / 2;
-
-    settextcolor(RGB(30, 30, 30));
-    outtextxy(text_x + 2, text_y + 2, hp_text);
-    settextcolor(RGB(255, 255, 255));
-    outtextxy(text_x, text_y, hp_text);
-
+    // 4. 绘制右上角提示性的暂停按钮框架
     int btn_w = 130;
     int btn_h = 40;
     int btn_x = WINDOW_WIDTH - btn_w - 20;
@@ -147,12 +177,14 @@ void DrawHUD(int score, int hp, int max_hp, int survival_time_sec)
     outtextxy(btn_x + (btn_w - t_w) / 2, btn_y + (btn_h - t_h) / 2, btn_text);
 }
 
+// 游戏主入口进程
 int main()
 {
-    // 初始化图形展示运行层画布界面空间配置
+    // 初始化 EasyX 绘图窗口，分辨率设定为 1280x720
     initgraph(WINDOW_WIDTH, WINDOW_HEIGHT);
 
-    // 初始化并读取图形图集素材贴图加载工作组
+    // ================= 图集与素材资源初始化 =================
+    // 从磁盘加载角色切片动画资源（参数依次为：路径模板、总帧数、单帧宽、单帧高、是否翻转）
     atlas_xiongda_right = new Atlas(_T("img/XiongDa_right_%d.png"), 8, 150, 150, false);
     atlas_xiongda_left = new Atlas(_T("img/XiongDa_right_%d.png"), 8, 150, 150, true);
     atlas_xionger_right = new Atlas(_T("img/XiongEr_right_%d.png"), 8, 150, 150, false);
@@ -160,6 +192,7 @@ int main()
     atlas_qiang_right = new Atlas(_T("img/GuangtouQiang_right_%d.png"), 8, 150, 150, false);
     atlas_qiang_left = new Atlas(_T("img/GuangtouQiang_right_%d.png"), 8, 150, 150, true);
 
+    // 加载怪物切片动画资源
     atlas_enemy_right = new Atlas(_T("img/LoggingWorker_right_%d.png"), 8, 80, 80, false);
     atlas_enemy_left = new Atlas(_T("img/LoggingWorker_right_%d.png"), 8, 80, 80, true);
     atlas_machine_right = new Atlas(_T("img/MechanicalLoggingWorker_right_%d.png"), 8, 120, 120, false);
@@ -167,14 +200,19 @@ int main()
     atlas_boss_right = new Atlas(_T("img/Boss_right_%d.png"), 8, 200, 200, false);
     atlas_boss_left = new Atlas(_T("img/Boss_right_%d.png"), 8, 200, 200, true);
 
-    loadimage(&img_bullet_right, _T("img/bullet_right.png"), 25, 10, true);
+    // 加载全局阴影贴图并预拉伸好尺寸
+    loadimage(&img_shadow_player, _T("img/shadow_player.png"), 80, 25, true);
+    loadimage(&img_shadow_normal, _T("img/shadow_enemy.png"), 65, 20, true);
+    loadimage(&img_shadow_machine, _T("img/shadow_enemy.png"), 90, 20, true);
+    loadimage(&img_shadow_boss, _T("img/shadow_enemy.png"), 160, 30, true);
 
-    // 内存反向投影构建子弹数据阵列图像
+    // 加载并手动处理子弹贴图镜像
+    loadimage(&img_bullet_right, _T("img/bullet_right.png"), 25, 10, true);
     img_bullet_left = img_bullet_right;
 
+    // 直接获取显存中的图片像素缓冲区 (Buffer)，通过矩阵对折运算，物理生成向左飞行的子弹镜像图
     int bullet_w = img_bullet_left.getwidth();
     int bullet_h = img_bullet_left.getheight();
-
     DWORD* bullet_buffer = GetImageBuffer(&img_bullet_left);
 
     for (int y = 0; y < bullet_h; y++)
@@ -183,28 +221,27 @@ int main()
         {
             int left_idx = y * bullet_w + x;
             int right_idx = y * bullet_w + (bullet_w - 1 - x);
-
             DWORD temp = bullet_buffer[left_idx];
             bullet_buffer[left_idx] = bullet_buffer[right_idx];
             bullet_buffer[right_idx] = temp;
         }
     }
 
-    // 装载底层多媒体播放控制项命令流
+    // ================= 多媒体音频资源预加载 =================
+    // 刚打开游戏时不播放，仅加载后台资源流并配置别名，设置默认音量为 50%（500/1000）
     mciSendString(_T("open mus/bgm.mp3 alias bgm"), NULL, 0, NULL);
     mciSendString(_T("open mus/hit.mp3 alias hit"), NULL, 0, NULL);
     mciSendString(_T("setaudio bgm volume to 500"), NULL, 0, NULL);
 
-    mciSendString(_T("play bgm repeat"), NULL, 0, NULL);
+    // ================= 核心游戏状态与实体容器初始化 =================
+    int score = 0;                        // 击杀得分
+    vector<Player*> players;              // 玩家对象数组（双人模式会有两个实体）
+    ExMessage msg;                        // 操作系统的鼠标键盘消息捕获结构体
+    IMAGE img_menu;                       // 菜单背景
+    IMAGE img_background;                 // 游戏战斗内场景背景
+    vector<Enemy*> enemy_list;            // 同屏敌人追踪数组
 
-    int score = 0;
-    Player* player = new XiongEr();
-    ExMessage msg;
-    IMAGE img_menu;
-    IMAGE img_background;
-    vector<Enemy*> enemy_list;
-
-    // 初始化注册响应交互区域矩形控制块
+    // ================= 【架构重构】：UI 菜单按钮的多态池化管理 =================
     RECT region_btn_start_game, region_btn_quit_game;
     region_btn_start_game.left = (WINDOW_WIDTH - BUTTON_WIDTH) / 2;
     region_btn_start_game.right = region_btn_start_game.left + BUTTON_WIDTH;
@@ -216,61 +253,70 @@ int main()
     region_btn_quit_game.top = 550;
     region_btn_quit_game.bottom = region_btn_quit_game.top + BUTTON_HEIGHT;
 
-    StartGameButton btn_start_game = StartGameButton(region_btn_start_game, _T("img/ui_start_idle.png"),
-        _T("img/ui_start_hovered.png"), _T("img/ui_start_pushed.png"));
-    QuitGameButton btn_quit_game = QuitGameButton(region_btn_quit_game, _T("img/ui_quit_idle.png"),
-        _T("img/ui_quit_hovered.png"), _T("img/ui_quit_pushed.png"));
+    // 利用基类指针数组统一承载不同行为模式的按钮实体，方便后续进行统一分发
+    vector<Button*> menu_buttons;
+    menu_buttons.push_back(new StartGameButton(region_btn_start_game, _T("img/ui_start_idle.png"), _T("img/ui_start_hovered.png"), _T("img/ui_start_pushed.png")));
+    menu_buttons.push_back(new QuitGameButton(region_btn_quit_game, _T("img/ui_quit_idle.png"), _T("img/ui_quit_hovered.png"), _T("img/ui_quit_pushed.png")));
 
     loadimage(&img_menu, _T("img/menu.png"));
     loadimage(&img_background, _T("img/background.png"));
 
-    // 启用帧缓冲以抹平帧间撕裂等渲染同步问题
+    // 开启 EasyX 的双缓冲绘图机制，将所有绘图动作先写在内存中，最后一次性输出到屏幕，彻底消除画面闪烁
     BeginBatchDraw();
 
-    bool is_game_paused = false;
-    DWORD pause_start_time = 0;
-    DWORD level_up_start_time = 0;
-    static DWORD game_over_time = 0;
+    // 游戏内部状态机标记
+    bool is_game_paused = false;          // 游戏是否被暂停
+    DWORD pause_start_time = 0;           // 记录暂停开启瞬间的系统时间，用于解除暂停时做时间补偿补偿
+    DWORD level_up_start_time = 0;        // 记录升级面板弹出的时间
+    static DWORD game_over_time = 0;      // 记录玩家死亡或通关导致游戏结束的时间
 
-    // 构建分配卡牌卡池及强化属性配置管理器
-    vector<ExpDrop> exp_list;
-    bool is_leveling_up = false;
-    int current_upgrade_options[3];
+    vector<ExpDrop> exp_list;             // 场上散落的经验球数组
+    bool is_leveling_up = false;          // 当前是否处于三选一升级状态
+    int current_upgrade_options[3];       // 本次升级抽取的 3 个随机强化项目 ID
 
-    LoadGameData();
-    int survival_time_ms = 0;
+    LoadGameData();                       // 本地读取历史最高分和最高存活时间
+    int survival_time_ms = 0;             // 本局累积存活时长（毫秒级）
 
-    int current_phase = 0;
-    DWORD phase_announce_time = 0;
-    bool is_game_won = false;
-    bool boss_spawned = false;
+    int current_phase = 0;                // 当前游戏阶段：1(树林), 2(机械), 3(Boss)
+    DWORD phase_announce_time = 0;        // 触发新阶段提示横幅的时间
+    bool is_game_won = false;             // 标识是否已击杀 Boss
+    bool boss_spawned = false;            // 限制 Boss 唯一性，避免重复刷新
 
-    // 开始接管执行应用程序的活动主循环调度系统
+    // ================= UI 预览专用实体池 =================
+    Player* preview_players[3];
+    preview_players[0] = CreatePlayer(CharacterType::XiongDa);
+    preview_players[1] = CreatePlayer(CharacterType::XiongEr);
+    preview_players[2] = CreatePlayer(CharacterType::GuangtouQiang);
+
+    // ================= 游戏主循环 (Game Loop) =================
     while (running)
     {
-        DWORD start_time = GetTickCount();
+        DWORD start_time = GetTickCount(); // 记录本帧开始的时间戳，用于最后做帧率锁定 (FPS Control)
 
-        // 处理执行排队拦截分配及提取消息监听机制
+        // 1. 消息轮询阶段：非阻塞式读取鼠标、键盘的各项操作输入
         while (peekmessage(&msg))
         {
+            // 监听键盘按键：处理暂停逻辑
             if (msg.message == WM_KEYDOWN && msg.vkcode == 'P')
             {
                 if (is_game_started && !is_game_over && !is_leveling_up)
                 {
-                    is_game_paused = !is_game_paused;
+                    is_game_paused = !is_game_paused; // 翻转暂停状态
                     if (is_game_paused)
                     {
                         pause_start_time = GetTickCount();
                     }
                     else
                     {
+                        // 解除暂停时，必须把暂停消耗的总时间补偿给所有定时器，否则会产生冷却错乱
                         DWORD pause_duration = GetTickCount() - pause_start_time;
-                        player->AddPauseTime(pause_duration);
+                        for (Player* p : players) p->AddPauseTime(pause_duration);
                         if (phase_announce_time > 0) phase_announce_time += pause_duration;
                     }
                 }
             }
 
+            // 监听鼠标滚轮：仅在暂停菜单中生效，用于调节音量大小
             if (msg.message == WM_MOUSEWHEEL)
             {
                 if (is_game_started && is_game_paused && !is_game_over)
@@ -286,36 +332,33 @@ int main()
                         if (current_volume < 0) current_volume = 0;
                     }
 
+                    // 组装并发送音频控制指令，动态修改底层的 mci 播放状态
                     TCHAR cmd[64];
                     _stprintf_s(cmd, _T("setaudio bgm volume to %d"), current_volume);
                     mciSendString(cmd, NULL, 0, NULL);
                 }
             }
 
-            if (msg.message == WM_KEYDOWN && msg.vkcode == VK_TAB)
+            // 【菜单独立按键】：仅在主界面未开始游戏时响应的选人与模式切换操作
+            if (msg.message == WM_KEYDOWN && !is_game_started)
             {
-                if (!is_game_started)
-                {
-                    POINT old_pos = player->GetPosition();
-
-                    delete player;
-
-                    int next_char = ((int)selected_character + 1) % 3;
+                if (msg.vkcode == VK_TAB) {
+                    int next_char = ((int)selected_character + 1) % 3; // 取模运算实现 3 个角色循环切换
                     selected_character = (CharacterType)next_char;
-
-                    if (selected_character == CharacterType::XiongDa)
-                        player = new XiongDa();
-                    else if (selected_character == CharacterType::XiongEr)
-                        player = new XiongEr();
-                    else
-                        player = new GuangtouQiang();
-
-                    player->SetPosition(old_pos);
+                }
+                if (msg.vkcode == 'Q' && game_mode == 2) {
+                    int next_char = ((int)selected_character_p2 + 1) % 3;
+                    selected_character_p2 = (CharacterType)next_char;
+                }
+                if (msg.vkcode == 'Y') {
+                    game_mode = (game_mode == 1) ? 2 : 1; // 1代表单机，2代表本地同屏双人
                 }
             }
 
+            // 【鼠标点击处理】：包括升级选项、游戏内暂停键、主界面难度按钮等热区的相交判定
             if (msg.message == WM_LBUTTONDOWN)
             {
+                // 如果在升级面板中，判定鼠标点击在哪张卡片上
                 if (is_leveling_up)
                 {
                     int card_w = 220, card_h = 320, gap = 50;
@@ -325,21 +368,24 @@ int main()
                     for (int i = 0; i < 3; i++)
                     {
                         int cx = start_x + i * (card_w + gap);
+                        // AABB 矩形包围盒点击相交测试
                         if (msg.x >= cx && msg.x <= cx + card_w && msg.y >= start_y && msg.y <= start_y + card_h)
                         {
-                            player->ApplyUpgrade(current_upgrade_options[i]);
-                            is_leveling_up = false;
+                            // 确认选择后，将该强化效果广度应用给所有的玩家对象
+                            for (Player* p : players) p->ApplyUpgrade(current_upgrade_options[i]);
+                            is_leveling_up = false; // 解除升级锁定状态
 
+                            // 同样需要做时间补偿，否则刚选完升级怪物可能瞬间位移
                             DWORD pause_duration = GetTickCount() - level_up_start_time;
-                            player->AddPauseTime(pause_duration);
+                            for (Player* p : players) p->AddPauseTime(pause_duration);
                             if (phase_announce_time > 0) phase_announce_time += pause_duration;
                             break;
                         }
                     }
                 }
-
-                if (is_game_started && !is_game_over && !is_leveling_up)
+                else if (is_game_started && !is_game_over)
                 {
+                    // 检测是否点击了右上角虚拟暂停按钮
                     int btn_x = WINDOW_WIDTH - 130 - 20;
                     int btn_y = 20;
                     if (msg.x >= btn_x && msg.x <= btn_x + 130 && msg.y >= btn_y && msg.y <= btn_y + 40)
@@ -352,17 +398,14 @@ int main()
                         else
                         {
                             DWORD pause_duration = GetTickCount() - pause_start_time;
-                            player->AddPauseTime(pause_duration);
+                            for (Player* p : players) p->AddPauseTime(pause_duration);
                             if (phase_announce_time > 0) phase_announce_time += pause_duration;
                         }
                     }
                 }
-
                 else if (!is_game_started)
                 {
-                    btn_start_game.ProcessEvent(msg);
-                    btn_quit_game.ProcessEvent(msg);
-
+                    // 检测主菜单难度切换按钮（简、普、难循环）
                     int diff_btn_w = 160;
                     int diff_btn_h = 50;
                     int diff_btn_x = WINDOW_WIDTH - diff_btn_w - 40;
@@ -377,56 +420,114 @@ int main()
                 }
             }
 
+            // 利用多态机制，遍历池化按钮分发底层鼠标消息
+            if (!is_game_started)
+            {
+                for (Button* btn : menu_buttons)
+                {
+                    btn->ProcessEvent(msg);
+                }
+            }
+
+            // 【玩家游戏内操作接收】：将操作指令向下层层派发给各个活着的 Player 实例
             if (is_game_started && !is_game_over)
             {
-                player->ProcessEvent(msg);
+                for (Player* p : players) {
+                    // 只处理存活玩家的操作指令，避免死后依然乱移
+                    if (p->GetHP() > 0)
+                        p->ProcessEvent(msg, game_mode);
+                }
 
-                if (msg.message == WM_KEYDOWN && msg.vkcode == VK_SPACE)
+                // 独立的主动技能按键响应与 CD 冷却判定
+                if (msg.message == WM_KEYDOWN && !is_game_paused && !is_leveling_up)
                 {
-                    if (!is_game_paused && !is_leveling_up)
+                    DWORD cur_t = GetTickCount();
+                    // 1P 放技能（绑定空格键）
+                    if (msg.vkcode == VK_SPACE && players.size() > 0 && players[0]->GetHP() > 0)
                     {
-                        DWORD current_time = GetTickCount();
-                        if (current_time - player->last_skill_time >= player->SKILL_CD)
+                        if (cur_t - players[0]->last_skill_time >= players[0]->SKILL_CD)
                         {
-                            player->UseSkill(enemy_list);
-                            player->last_skill_time = current_time;
+                            players[0]->UseSkill(enemy_list);
+                            players[0]->last_skill_time = cur_t; // 重置冷却
+                        }
+                    }
+                    // 2P 放技能（绑定数字键 0）
+                    if (game_mode == 2 && (msg.vkcode == VK_NUMPAD0 || msg.vkcode == '0') && players.size() > 1 && players[1]->GetHP() > 0)
+                    {
+                        if (cur_t - players[1]->last_skill_time >= players[1]->SKILL_CD)
+                        {
+                            players[1]->UseSkill(enemy_list);
+                            players[1]->last_skill_time = cur_t;
                         }
                     }
                 }
             }
-            else if (!is_game_started)
-            {
-                btn_start_game.ProcessEvent(msg);
-                btn_quit_game.ProcessEvent(msg);
+        } // end of while (peekmessage) 消息轮询结束
+
+        // ================= 【极度安全的防卡死初始化 & 音乐播放逻辑】 =================
+        // 防止玩家刚点完开始按钮、但对象数组来不及初始化就被渲染层拦截导致的崩溃死锁
+        if (is_game_started && players.empty())
+        {
+            // 在正式切入游戏的一瞬间，开始无限循环播放 BGM
+            mciSendString(_T("play bgm repeat"), NULL, 0, NULL);
+
+            // 通过工厂构建 1P 对象，并赋予 1 号手柄标识
+            players.push_back(CreatePlayer(selected_character));
+            players[0]->player_id = 1;
+            players[0]->SetPosition({ 400, 500 });
+
+            // 若在双人模式下，一并拉起 2P 对象并放置在右侧区域
+            if (game_mode == 2) {
+                players.push_back(CreatePlayer(selected_character_p2));
+                players[1]->player_id = 2;
+                players[1]->SetPosition({ 800, 500 });
             }
         }
 
-        // 停止运算暂停界面的物理计算和逻辑推导状态挂载
-        if (is_game_started && !is_game_over && !is_game_paused && !is_leveling_up)
+        // 2. 游戏核心逻辑运算阶段：处理移动、碰撞、AI追踪、经验结算（仅在游戏进行且未暂停时进行）
+        if (is_game_started && !is_game_over && !is_game_paused && !is_leveling_up && !players.empty())
         {
+            // 以固定刷新率累加游戏存活时间
             survival_time_ms += (1000 / 144);
 
-            // 进行自动抓取收集物体的引力系统寻路计算判定
+            // ================= 经验球磁力追踪吸收逻辑 =================
             for (size_t i = 0; i < exp_list.size(); i++)
             {
-                if (!exp_list[i].active) continue;
+                if (!exp_list[i].active) continue; // 跳过已被标记为删除的废弃节点
 
-                double dx = (player->GetPosition().x + player->FRAME_WIDTH / 2) - exp_list[i].x;
-                double dy = (player->GetPosition().y + player->FRAME_HEIGHT / 2) - exp_list[i].y;
-                double dist = sqrt(dx * dx + dy * dy);
+                Player* closest_p = nullptr;
+                double min_dist = 999999;
 
-                if (dist < 180)
-                {
-                    exp_list[i].x += (dx / dist) * 10.0;
-                    exp_list[i].y += (dy / dist) * 10.0;
+                // 找到距离当前经验球欧几里得距离最近的存活玩家
+                for (Player* p : players) {
+                    if (p->GetHP() <= 0) continue;
+                    double dx = (p->GetPosition().x + p->FRAME_WIDTH / 2) - exp_list[i].x;
+                    double dy = (p->GetPosition().y + p->FRAME_HEIGHT / 2) - exp_list[i].y;
+                    double dist = sqrt(dx * dx + dy * dy);
+                    if (dist < min_dist) { min_dist = dist; closest_p = p; }
                 }
-                if (dist < 35)
+
+                // 如果最近的玩家进入了经验球的磁吸判定范围（180像素内）
+                if (closest_p && min_dist < 180)
                 {
-                    exp_list[i].active = false;
-                    player->exp += 1;
+                    double dx = (closest_p->GetPosition().x + closest_p->FRAME_WIDTH / 2) - exp_list[i].x;
+                    double dy = (closest_p->GetPosition().y + closest_p->FRAME_HEIGHT / 2) - exp_list[i].y;
+
+                    // 基于向量对经验球进行插值移动，模拟逐渐吸附过去的特效
+                    exp_list[i].x += (dx / min_dist) * 10.0;
+                    exp_list[i].y += (dy / min_dist) * 10.0;
+
+                    // 若二者已经极其贴近（35像素内），判定为成功拾取
+                    if (min_dist < 35)
+                    {
+                        exp_list[i].active = false;
+                        players[0]->exp += 1; // 经验值是全局共享池，统一挂载在 0 号玩家身上即可
+                    }
                 }
             }
 
+            // ================= 性能优化：快速清理垃圾内存 =================
+            // 采用 swap(头, 尾) -> pop_back 的无序删除技巧，将擦除时间复杂度由 O(N) 降为 O(1)
             for (size_t i = 0; i < exp_list.size(); i++) {
                 if (!exp_list[i].active) {
                     swap(exp_list[i], exp_list.back());
@@ -435,15 +536,18 @@ int main()
                 }
             }
 
-            if (player->exp >= player->max_exp)
+            // ================= 等级提升判定逻辑 =================
+            if (players[0]->exp >= players[0]->max_exp)
             {
-                player->exp -= player->max_exp;
-                player->level++;
-                player->max_exp += 3;
+                players[0]->exp -= players[0]->max_exp;
+                for (Player* p : players) p->level++;
+                players[0]->max_exp += 3; // 升级曲线：每级多需 3 点经验
 
+                // 挂起游戏物理逻辑，触发 UI 层升级界面拦截
                 is_leveling_up = true;
                 level_up_start_time = GetTickCount();
 
+                // 使用洗牌算法 (Fisher-Yates Shuffle) 打乱 7 个备选属性 ID 池，并抽出前 3 个作为本轮强化选项
                 int pool[7] = { 0, 1, 2, 3, 4, 5, 6 };
                 for (int i = 0; i < 7; i++)
                 {
@@ -455,78 +559,114 @@ int main()
                 current_upgrade_options[2] = pool[2];
             }
 
+            // ================= 游戏进度与难度阶段调度器 =================
             int target_phase = 1;
-            if (survival_time_ms >= 150000) target_phase = 3;
-            else if (survival_time_ms >= 60000) target_phase = 2;
+            if (survival_time_ms >= 150000) target_phase = 3;      // 150秒后进入三阶段（boss）
+            else if (survival_time_ms >= 60000) target_phase = 2;  // 60秒后进入二阶段（刷机械怪）
 
+            // 若达成跃迁条件，更新阶段标识并触发巨幕文字播报计时
             if (target_phase > current_phase) {
                 current_phase = target_phase;
                 phase_announce_time = GetTickCount();
             }
 
-            player->Move();
-            player->UpdateAttacks();
-            player->UpdateExtraSkills(enemy_list);
-            TryGenerateEnemy(enemy_list, current_phase, boss_spawned);
-
-            size_t current_enemy_count = enemy_list.size();
-            for (size_t i = 0; i < current_enemy_count; i++)
-            {
-                enemy_list[i]->Move(*player, enemy_list);
-            }
-
-            for (Enemy* enemy : enemy_list)
-            {
-                if (enemy->CheckPlayerCollision(*player))
-                {
-                    double diff_multiplier = 1.0;
-
-                    if (current_difficulty == Difficulty::Easy)
-                        diff_multiplier = 0.6;
-                    else if (current_difficulty == Difficulty::Normal)
-                        diff_multiplier = 1.0;
-                    else if (current_difficulty == Difficulty::Hard)
-                        diff_multiplier = 2.0;
-
-                    int dmg = (int)(enemy->collision_damage * diff_multiplier);
-
-                    player->TakeDamage(dmg);
-
-                    if (player->GetHP() <= 0 && !is_game_over)
-                    {
-                        is_game_over = true;
-                        game_over_time = GetTickCount();
-                        SaveGameData(score, survival_time_ms / 1000);
+            // ================= 玩家与子系统逻辑自循环 =================
+            for (Player* p : players) {
+                if (p->GetHP() > 0) {
+                    p->Move();
+                    p->UpdateAttacks();
+                    p->UpdateExtraSkills(enemy_list);
+                }
+                else {
+                    // 如果玩家已经死亡，强行重置/清空其武器库状态，防止死后武器依然活跃
+                    if (p->GetBullets().size() > 0 && p->GetBullets()[0].is_active) {
+                        for (Bullet& b : p->GetBullets()) b.is_active = false;
                     }
                 }
             }
 
+            // 调用敌人生成分发器补充场上怪物
+            TryGenerateEnemy(enemy_list, current_phase, boss_spawned);
+
+            // ================= AI 索敌寻路算法 =================
+            size_t current_enemy_count = enemy_list.size();
+            for (size_t i = 0; i < current_enemy_count; i++)
+            {
+                // Move 内部会遍历所有玩家，测算最短路径向量并不断迫近
+                enemy_list[i]->Move(players, enemy_list);
+            }
+
+            // ================= 物理碰撞：敌方伤害结算 =================
             for (Enemy* enemy : enemy_list)
             {
-                for (const Bullet& bullet : player->GetBullets())
-                {
-                    if (enemy->CheckBulletCollision(bullet))
+                for (Player* p : players) {
+                    // 当存活的玩家坐标包围盒与敌人包围盒发生相交判定
+                    if (p->GetHP() > 0 && enemy->CheckPlayerCollision(*p))
                     {
-                        if (enemy->Hurt(player->GetAttackDamage(), bullet.pos))
+                        // 计算当前所选难度对应的伤害放大/缩小倍率
+                        double diff_multiplier = 1.0;
+                        if (current_difficulty == Difficulty::Easy) diff_multiplier = 0.6;
+                        else if (current_difficulty == Difficulty::Normal) diff_multiplier = 1.0;
+                        else if (current_difficulty == Difficulty::Hard) diff_multiplier = 2.0;
+
+                        // 让玩家承受带难度系数的削减后最终伤害
+                        int dmg = (int)(enemy->collision_damage * diff_multiplier);
+                        p->TakeDamage(dmg);
+                    }
+                }
+            }
+
+            // ================= 玩家团灭终结判定 =================
+            bool all_dead = true;
+            for (Player* p : players) if (p->GetHP() > 0) all_dead = false;
+
+            if (all_dead && !is_game_over)
+            {
+                is_game_over = true;
+                game_over_time = GetTickCount(); // 封存死亡瞬时时间
+                SaveGameData(score, survival_time_ms / 1000); // 并将成绩落盘固化
+            }
+
+            // ================= 物理碰撞：玩家弹幕/武器攻击结算 =================
+            for (Enemy* enemy : enemy_list)
+            {
+                for (Player* p : players)
+                {
+                    // 如果玩家已经阵亡，他的武器不再具有任何物理伤害判定效力，直接跳过
+                    if (p->GetHP() <= 0) continue;
+
+                    // 遍历该名存活玩家投射在屏幕上的所有火力实体
+                    for (const Bullet& bullet : p->GetBullets())
+                    {
+                        // 若子弹击中该名敌人
+                        if (enemy->CheckBulletCollision(bullet))
                         {
-                            mciSendString(_T("play hit from 0"), NULL, 0, NULL);
+                            // 扣除怪物血量（如果怪物处于无敌硬直内则 hurt 返回 false）
+                            if (enemy->Hurt(p->GetAttackDamage(), bullet.pos))
+                            {
+                                // 确认真伤命中时，从零重置播放受击音效
+                                mciSendString(_T("play hit from 0"), NULL, 0, NULL);
+                            }
                         }
                     }
                 }
             }
 
+            // ================= 清理战场与击杀奖励结算 =================
             for (size_t i = 0; i < enemy_list.size(); i++)
             {
                 Enemy* enemy = enemy_list[i];
-                if (!enemy->CheckAlive())
+                if (!enemy->CheckAlive()) // 如果怪物血量归零且通过了死亡缓冲帧
                 {
                     if (enemy->is_boss)
                     {
+                        // Boss 阵亡是游戏胜利的唯一条件
                         is_game_won = true;
                         is_game_over = true;
                         game_over_time = GetTickCount();
                         SaveGameData(score, survival_time_ms / 1000);
 
+                        // 清屏机制：给场上残余的小怪施加超长时长的无敌闪烁遮蔽，视觉上使其消失
                         for (Enemy* e : enemy_list)
                         {
                             if (e != enemy)
@@ -537,14 +677,15 @@ int main()
                     }
                     else
                     {
+                        // 普通怪阵亡增加分数，并在其尸体坐标处爆出一颗蓝色经验球进入场中
                         score++;
-
                         ExpDrop exp_drop;
                         exp_drop.x = enemy->GetPosition().x + 40;
                         exp_drop.y = enemy->GetPosition().y + 40;
                         exp_list.push_back(exp_drop);
                     }
 
+                    // 垃圾回收：清除野指针释放堆内存，同样采用 swap 法快速缩容
                     swap(enemy_list[i], enemy_list.back());
                     enemy_list.pop_back();
                     delete enemy;
@@ -552,23 +693,38 @@ int main()
                 }
             }
         }
-
+        // ================= 游戏结束下的状态捕获 =================
         else if (is_game_over)
         {
             if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
             {
-                running = false;
+                running = false; // 按 ESC 直接关闭程序
             }
             if (GetAsyncKeyState('R') & 0x8000)
             {
+                // 按 R 键快捷“再来一局”：清空并重置所有数据指针与标志位
                 is_game_over = false;
                 is_game_paused = false;
                 score = 0;
                 survival_time_ms = 0;
                 for (Enemy* enemy : enemy_list) delete enemy;
                 enemy_list.clear();
-                player->Reset();
-                Sleep(150);
+
+                for (Player* p : players) delete p;
+                players.clear();
+
+                // 重新派发满血新角色进入战斗区域
+                players.push_back(CreatePlayer(selected_character));
+                players[0]->player_id = 1;
+                players[0]->SetPosition({ 400, 500 });
+
+                if (game_mode == 2) {
+                    players.push_back(CreatePlayer(selected_character_p2));
+                    players[1]->player_id = 2;
+                    players[1]->SetPosition({ 800, 500 });
+                }
+
+                Sleep(150); // 简单防抖，避免按键瞬间被连续触发两次
 
                 current_phase = 0;
                 phase_announce_time = 0;
@@ -580,14 +736,24 @@ int main()
             }
             if (GetAsyncKeyState('M') & 0x8000)
             {
+                // ================= 【音乐播放修改 3】 =================
+                // 玩家返回主菜单时，将音乐停止并拉回起始轨道，避免在菜单产生 BGM 残留吵闹
+                mciSendString(_T("stop bgm"), NULL, 0, NULL);
+                mciSendString(_T("seek bgm to start"), NULL, 0, NULL);
+
+                // 抹除战局状态，将视角退回主菜单
                 is_game_started = false;
                 is_game_over = false;
                 is_game_paused = false;
                 score = 0;
                 survival_time_ms = 0;
+
+                // 深度内存清理
                 for (Enemy* enemy : enemy_list) delete enemy;
                 enemy_list.clear();
-                player->Reset();
+                for (Player* p : players) delete p;
+                players.clear();
+
                 Sleep(150);
 
                 current_phase = 0;
@@ -600,49 +766,59 @@ int main()
             }
         }
 
-        // 接管渲染管线的图层执行并控制图层叠加先后状态优先级顺序
+        // 3. 游戏界面渲染绘制阶段
+        // 调用底层的 cleardevice 以默认黑色洗去上一帧残留在屏幕缓冲区的图像脏数据
         cleardevice();
-        if (is_game_started)
+
+        // === 游戏进行时的画面渲染层 ===
+        if (is_game_started && !players.empty())
         {
+            // Z-Index = 0：贴上纯静态的大图背景底板
             putimage(0, 0, &img_background);
 
+            // 获取差量时间，如果暂停或在选升级界面中，给到后续动画库的 delta 设为 0（视觉冻结）
             int current_delta = (is_game_paused || is_leveling_up) ? 0 : (1000 / 144);
-
             DWORD tick = GetTickCount();
+
+            // Z-Index = 1：绘制地上散落的经验球
             for (const ExpDrop& e : exp_list)
             {
-                int breath = (tick / 100) % 4;
-
+                int breath = (tick / 100) % 4; // 通过 tick 取模制作 4 帧循环的视觉涨缩呼吸感效果
                 setlinecolor(RGB(170, 230, 255));
                 setfillcolor(RGB(170, 230, 255));
-                solidcircle((int)e.x, (int)e.y, 8 + breath);
-
+                solidcircle((int)e.x, (int)e.y, 8 + breath); // 外圈光晕
                 setfillcolor(RGB(220, 245, 255));
-                solidcircle((int)e.x, (int)e.y, 5 + breath / 2);
-
+                solidcircle((int)e.x, (int)e.y, 5 + breath / 2); // 内圈本体
                 setfillcolor(RGB(255, 255, 255));
-                solidcircle((int)e.x, (int)e.y, 2);
+                solidcircle((int)e.x, (int)e.y, 2);              // 高光白斑
             }
 
-            player->Draw(current_delta);
+            // Z-Index = 2：调用各个玩家自封装的渲染模块画出自身动画帧与投影
+            for (Player* p : players) p->Draw(current_delta);
 
+            // Z-Index = 3：绘制爬行的敌人
             for (Enemy* enemy : enemy_list)
             {
-                if (is_game_over && is_game_won && (GetTickCount() - game_over_time > 1500))
-                {
-                    continue;
-                }
+                // 如果此时已经通关（Boss已死）且超过 1.5 秒演出期，直接屏蔽小怪绘制
+                if (is_game_over && is_game_won && (tick - game_over_time > 1500)) continue;
                 enemy->Draw(current_delta);
             }
 
-            player->DrawAttacks();
-            player->orbital_skill.Draw(is_game_paused, pause_start_time);
+            // Z-Index = 4：在人物贴图上层绘制环绕自身的武器、投射出去的子弹以及从天而降的落雷特效
+            for (Player* p : players) {
+                if (p->GetHP() > 0) { // 核心拦截：死亡状态下不允许绘制漂浮特效，避免画面出现灵异残留
+                    p->DrawAttacks();
+                    p->orbital_skill.Draw(is_game_paused || is_leveling_up, is_game_paused ? pause_start_time : level_up_start_time);
+                }
+            }
 
-            if (is_game_over && is_game_won && (GetTickCount() - game_over_time < 1500))
+            // Z-Index = 5：通关时的庆祝特效层
+            if (is_game_over && is_game_won && (tick - game_over_time < 1500))
             {
-                DWORD elapsed = GetTickCount() - game_over_time;
+                DWORD elapsed = tick - game_over_time;
                 double progress = elapsed / 1500.0;
 
+                // 在每一个残余敌人的身上绘制一道不断向外扩散膨胀并渐渐变细消失的白色终结冲击波
                 for (Enemy* enemy : enemy_list)
                 {
                     POINT p = enemy->GetPosition();
@@ -663,6 +839,7 @@ int main()
                         circle(center_x, center_y, (int)(radius * 0.8));
                     }
 
+                    // 伴随冲击波的四角爆裂十字星特效
                     if (progress < 0.5)
                     {
                         double star_prog = progress * 2.0;
@@ -678,30 +855,36 @@ int main()
                         }
                     }
                 }
-
-                setlinestyle(PS_SOLID, 1);
+                setlinestyle(PS_SOLID, 1); // 必须归位线条样式，避免污染下一帧的默认绘图线宽
             }
 
-            DrawHUD(score, player->GetHP(), player->GetMaxHP(), survival_time_ms / 1000);
+            // Z-Index = 6：绘制左上角通用静态 UI 信息面板（血槽、计分板）
+            DrawHUD(score, players, survival_time_ms / 1000);
 
+            // ================= 经验槽及进度等相关动态 UI 渲染 =================
+            // 修复后的代码：
+            DWORD current_render_time = is_game_paused ? pause_start_time : (is_leveling_up ? level_up_start_time : tick); // 防止暂停时冷却面板颜色继续偷跑计算
+
+            // 绘制底部的全局共享升级经验蓝色空心拉丝进度条
+            int exp_bar_y = 95 + players.size() * 40;
             int exp_bar_w = 300;
             int exp_bar_h = 16;
             int exp_bar_x = 15;
-            int exp_bar_y = 135;
 
             setlinecolor(RGB(50, 50, 50));
             setfillcolor(RGB(30, 30, 30));
             fillroundrect(exp_bar_x, exp_bar_y, exp_bar_x + exp_bar_w, exp_bar_y + exp_bar_h, 3, 3);
 
-            if (player->exp > 0)
+            if (players[0]->exp > 0)
             {
-                int exp_fill = (int)((double)player->exp / player->max_exp * exp_bar_w);
+                int exp_fill = (int)((double)players[0]->exp / players[0]->max_exp * exp_bar_w);
                 setfillcolor(RGB(0, 180, 255));
                 solidroundrect(exp_bar_x + 1, exp_bar_y + 1, exp_bar_x + exp_fill - 1, exp_bar_y + exp_bar_h - 1, 3, 3);
             }
 
+            // 经验条附带的 Lv 文字等级与 EXP 字母标注
             TCHAR lvl_text[32];
-            _stprintf_s(lvl_text, _T("Lv.%d"), player->level);
+            _stprintf_s(lvl_text, _T("Lv.%d"), players[0]->level);
             settextstyle(16, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
 
             settextcolor(RGB(20, 20, 20));
@@ -714,6 +897,7 @@ int main()
             settextcolor(RGB(150, 200, 255));
             outtextxy(exp_bar_x + exp_bar_w - 35, exp_bar_y, _T("EXP"));
 
+            // 绘制顶部中轴的难度推进宽大进度条（橙色）
             int prog_bar_w = 500;
             int prog_bar_h = 16;
             int prog_bar_x = (WINDOW_WIDTH - prog_bar_w) / 2;
@@ -723,6 +907,7 @@ int main()
             LPCTSTR phase_target_text = _T("");
             int time_left_sec = 0;
 
+            // 根据不同的生存时间判定，拆分绘制区间计算并展示下一阶段文本倒计时
             if (survival_time_ms < 60000) {
                 phase_progress = (double)survival_time_ms / 60000.0;
                 time_left_sec = (60000 - survival_time_ms) / 1000;
@@ -739,6 +924,7 @@ int main()
                 phase_target_text = _T("最终阶段：击败黑化光头强！");
             }
 
+            // 绘制框体容器与橙色高亮填充
             setlinecolor(RGB(150, 150, 150));
             setlinestyle(PS_SOLID, 2);
             roundrect(prog_bar_x - 2, prog_bar_y - 2, prog_bar_x + prog_bar_w + 2, prog_bar_y + prog_bar_h + 2, 5, 5);
@@ -755,6 +941,7 @@ int main()
                 solidroundrect(prog_bar_x + 1, prog_bar_y + 1, prog_bar_x + prog_fill - 1, prog_bar_y + prog_bar_h - 1, 3, 3);
             }
 
+            // 拼装进度时间动态字符串，采取上下左右画四次黑字，中间画一次黄字的低成本文本描边手法
             TCHAR prog_text[64];
             if (survival_time_ms < 150000) {
                 _stprintf_s(prog_text, _T("%s还有 %d 秒"), phase_target_text, time_left_sec);
@@ -770,17 +957,16 @@ int main()
             int tx = prog_bar_x + (prog_bar_w - tw) / 2;
             int ty = prog_bar_y - 30;
 
-            settextcolor(RGB(30, 30, 30));
+            settextcolor(RGB(30, 30, 30)); // 绘制描边
             outtextxy(tx - 1, ty - 1, prog_text);
             outtextxy(tx + 1, ty - 1, prog_text);
             outtextxy(tx - 1, ty + 1, prog_text);
             outtextxy(tx + 1, ty + 1, prog_text);
-
             outtextxy(tx, ty + 2, prog_text);
-
-            settextcolor(RGB(255, 220, 50));
+            settextcolor(RGB(255, 220, 50)); // 绘制核心色彩
             outtextxy(tx, ty, prog_text);
 
+            // ================= 满级悬浮框 UI 面板渲染 =================
             if (is_leveling_up)
             {
                 int panel_w = 900, panel_h = 500;
@@ -790,7 +976,7 @@ int main()
                 setlinecolor(RGB(200, 150, 50));
                 setlinestyle(PS_SOLID, 2);
                 setfillcolor(RGB(30, 30, 30));
-                fillroundrect(px, py, px + panel_w, py + panel_h, 15, 15);
+                fillroundrect(px, py, px + panel_w, py + panel_h, 15, 15); // 黑金色遮罩悬浮板
                 setlinestyle(PS_SOLID, 1);
 
                 settextstyle(42, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
@@ -802,6 +988,7 @@ int main()
                 int start_x = px + (panel_w - (3 * card_w + 2 * gap)) / 2;
                 int start_y = py + 120;
 
+                // 循环根据前面 Fisher-Yates 洗出的三个有效随机数组 ID，构建 3 张带有详情的强化选拔扑克牌
                 for (int i = 0; i < 3; i++)
                 {
                     int cx = start_x + i * (card_w + gap);
@@ -815,6 +1002,7 @@ int main()
                     LPCTSTR desc = _T("");
                     COLORREF c_color = RGB(255, 255, 255);
 
+                    // 多态选项数据装载，分别给不同词条赋予独立的高光颜色进行辨识
                     int opt = current_upgrade_options[i];
                     if (opt == 0) {
                         title = _T("强壮体魄"); desc = _T("最大生命值 +20"); c_color = RGB(50, 255, 50);
@@ -828,36 +1016,27 @@ int main()
                     else if (opt == 3) {
                         title = _T("绝地急救"); desc = _T("恢复 50% 生命"); c_color = RGB(255, 200, 50);
                     }
-                    else if (opt == 4)
-                    {
-                        title = _T("缩减cd");
-                        desc = _T("技能冷却减少 20%");
-                        c_color = RGB(200, 100, 255);
+                    else if (opt == 4) {
+                        title = _T("缩减cd"); desc = _T("技能冷却减少 20%"); c_color = RGB(200, 100, 255);
                     }
-                    else if (opt == 5)
-                    {
-                        title = _T("钢铁之躯");
-                        desc = _T("减免 20% 受到伤害");
-                        c_color = RGB(180, 180, 180);
+                    else if (opt == 5) {
+                        title = _T("钢铁之躯"); desc = _T("减免 20% 受到伤害"); c_color = RGB(180, 180, 180);
                     }
-                    else if (opt == 6)
-                    {
+                    else if (opt == 6) {
                         title = _T("天降正义");
-
                         static TCHAR orbital_desc[64];
-
-                        if (player->orbital_skill.level == 0)
-                        {
+                        // 动态获取玩家0（共用）的技能等级来动态展示卡牌描述文字
+                        if (players[0]->orbital_skill.level == 0) {
                             desc = _T("自动召唤高伤害落雷");
                         }
-                        else
-                        {
-                            _stprintf_s(orbital_desc, _T("升级落雷 (Lv.%d) : 伤害+ 冷却-"), player->orbital_skill.level + 1);
+                        else {
+                            _stprintf_s(orbital_desc, _T("升级落雷 (Lv.%d) : 伤害+ 冷却-"), players[0]->orbital_skill.level + 1);
                             desc = orbital_desc;
                         }
                         c_color = RGB(0, 255, 255);
                     }
 
+                    // 绘制每张牌内部带颜色的荧光内边框
                     setlinecolor(c_color);
                     setlinestyle(PS_SOLID, 3);
                     roundrect(cx + 10, cy + 10, cx + card_w - 10, cy + card_h - 10, 5, 5);
@@ -877,64 +1056,69 @@ int main()
                 }
             }
 
-            DWORD current_time = GetTickCount();
-            if (is_game_paused)
-            {
-                current_time = pause_start_time;
-            }
+            // ================= 玩家独立按键技能指示面板 =================
+            // 绘制双边技能独立 CD 提示充能槽
+            for (size_t i = 0; i < players.size(); i++) {
+                DWORD elapsed = current_render_time - players[i]->last_skill_time; // 使用修复后的安全时间变量
+                int cd_w = 260;
+                int cd_h = 26;
+                int cd_x = 0;
 
-            DWORD elapsed = current_time - player->last_skill_time;
-
-            int cd_w = 260;
-            int cd_h = 26;
-            int cd_x = (WINDOW_WIDTH - cd_w) / 2;
-            int cd_y = WINDOW_HEIGHT - 40;
-
-            setlinecolor(RGB(50, 50, 50));
-            setfillcolor(RGB(30, 30, 30));
-            fillroundrect(cd_x, cd_y, cd_x + cd_w, cd_y + cd_h, 5, 5);
-
-            if (elapsed >= player->SKILL_CD)
-            {
-                setfillcolor(RGB(50, 255, 255));
-                solidroundrect(cd_x + 1, cd_y + 1, cd_x + cd_w - 1, cd_y + cd_h - 1, 5, 5);
-                settextstyle(16, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
-                settextcolor(RGB(0, 0, 0));
-
-                LPCTSTR ready_text = _T("");
-                if (selected_character == CharacterType::XiongDa)
-                {
-                    ready_text = _T("[空格键] 释放：熊掌拍击");
+                // 适配排版：如果只有 1 人，置于屏幕正中底部；如果双人，则强制靠屏幕两侧排布分明
+                if (game_mode == 1) {
+                    cd_x = (WINDOW_WIDTH - cd_w) / 2;
                 }
-                else if (selected_character == CharacterType::XiongEr)
+                else {
+                    if (i == 0) cd_x = 30;
+                    else cd_x = WINDOW_WIDTH - cd_w - 30;
+                }
+                int cd_y = WINDOW_HEIGHT - 40;
+
+                setlinecolor(RGB(50, 50, 50));
+                setfillcolor(RGB(30, 30, 30));
+                fillroundrect(cd_x, cd_y, cd_x + cd_w, cd_y + cd_h, 5, 5);
+
+                // 字符串解析拼接，根据角色名称映射展示不同的技能称号
+                CharacterType p_char = (i == 0) ? selected_character : selected_character_p2;
+                LPCTSTR skill_name = _T("技能");
+                if (p_char == CharacterType::XiongDa) skill_name = _T("熊掌拍击");
+                else if (p_char == CharacterType::XiongEr) skill_name = _T("蜂蜜回血");
+                else skill_name = _T("火力全开");
+
+                TCHAR ready_text[64];
+                if (game_mode == 1 || i == 0) _stprintf_s(ready_text, _T("[空格] %s"), skill_name);
+                else _stprintf_s(ready_text, _T("[Num0] %s"), skill_name);
+
+                // 根据独立时间戳，如果冷却完成呈现高亮色，如果充能中截断长度呈现黄褐色
+                if (elapsed >= players[i]->SKILL_CD)
                 {
-                    ready_text = _T("[空格键] 释放：蜂蜜回血");
+                    setfillcolor(RGB(50, 255, 255));
+                    solidroundrect(cd_x + 1, cd_y + 1, cd_x + cd_w - 1, cd_y + cd_h - 1, 5, 5);
+                    settextstyle(16, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
+                    settextcolor(RGB(0, 0, 0));
+
+                    int tx = cd_x + (cd_w - textwidth(ready_text)) / 2;
+                    outtextxy(tx, cd_y + 5, ready_text);
                 }
                 else
                 {
-                    ready_text = _T("[空格键] 释放：火力全开");
+                    int fill_w = (int)((double)elapsed / players[i]->SKILL_CD * cd_w);
+                    setfillcolor(RGB(150, 100, 50));
+                    solidroundrect(cd_x + 1, cd_y + 1, cd_x + fill_w - 1, cd_y + cd_h - 1, 5, 5);
+                    settextstyle(16, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
+                    settextcolor(RGB(200, 200, 200));
+
+                    LPCTSTR cd_text = _T("技能充能中...");
+                    int tx = cd_x + (cd_w - textwidth(cd_text)) / 2;
+                    outtextxy(tx, cd_y + 5, cd_text);
                 }
-
-                int tx = cd_x + (cd_w - textwidth(ready_text)) / 2;
-                outtextxy(tx, cd_y + 5, ready_text);
-            }
-            else
-            {
-                int fill_w = (int)((double)elapsed / player->SKILL_CD * cd_w);
-
-                setfillcolor(RGB(150, 100, 50));
-                solidroundrect(cd_x + 1, cd_y + 1, cd_x + fill_w - 1, cd_y + cd_h - 1, 5, 5);
-                settextstyle(16, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
-                settextcolor(RGB(200, 200, 200));
-
-                LPCTSTR cd_text = _T("技能充能中...");
-                int tx = cd_x + (cd_w - textwidth(cd_text)) / 2;
-                outtextxy(tx, cd_y + 5, cd_text);
             }
 
-            if (current_phase > 0 && (GetTickCount() - phase_announce_time < 3500) && !is_game_over && !is_leveling_up)
+            // ================= 阶段跳跃预警跑马灯大字 =================
+            // 当游戏难度进入下一阶段时，在中心展示带有红黄闪烁频闪特效的警告语，存在时间 3500ms
+            if (current_phase > 0 && (tick - phase_announce_time < 3500) && !is_game_over && !is_leveling_up)
             {
-                DWORD elapsed = GetTickCount() - phase_announce_time;
+                DWORD elapsed = tick - phase_announce_time;
                 settextstyle(60, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
                 setbkmode(TRANSPARENT);
 
@@ -956,6 +1140,8 @@ int main()
                 outtextxy(tx, ty, phase_text);
             }
 
+            // ================= 核心状态中断：通用系统菜单面板 =================
+            // 绘制点击或者按下 P 触发的游戏暂停遮罩层板
             if (is_game_paused && !is_game_over)
             {
                 setlinecolor(RGB(0, 0, 0));
@@ -978,6 +1164,7 @@ int main()
                 LPCTSTR hint_p = _T("- 再按 P 键恢复游戏 -");
                 outtextxy((WINDOW_WIDTH - textwidth(hint_p)) / 2, py + 80, hint_p);
 
+                // 悬挂内嵌的鼠标滚轮音量交互修改显示进度条
                 int vol_bar_w = 260;
                 int vol_bar_h = 12;
                 int vol_bar_x = (WINDOW_WIDTH - vol_bar_w) / 2;
@@ -1001,7 +1188,8 @@ int main()
                 outtextxy((WINDOW_WIDTH - textwidth(vol_text)) / 2, vol_bar_y + 25, vol_text);
             }
 
-            if (is_game_over && (GetTickCount() - game_over_time > 2000))
+            // 绘制 Game Over 终结清算提示黑板
+            if (is_game_over && (tick - game_over_time > 2000))
             {
                 setlinecolor(RGB(0, 0, 0));
                 setfillcolor(RGB(40, 40, 40));
@@ -1011,6 +1199,7 @@ int main()
                 int py = (WINDOW_HEIGHT - panel_height) / 2;
                 fillroundrect(px, py, px + panel_width, py + panel_height, 20, 20);
 
+                // 根据胜利与否赋色判决文案
                 settextstyle(48, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
                 LPCTSTR over_text;
                 if (is_game_won) {
@@ -1023,6 +1212,7 @@ int main()
                 }
                 outtextxy(px + (panel_width - textwidth(over_text)) / 2, py + 40, over_text);
 
+                // 战绩汇报文本展示
                 TCHAR final_score_text[64];
                 _stprintf_s(final_score_text, _T("最终分数：%d 分 | 存活：%d 秒"), score, survival_time_ms / 1000);
                 settextstyle(28, 0, _T("微软雅黑"), 0, 0, FW_NORMAL, false, false, false);
@@ -1035,88 +1225,117 @@ int main()
                 outtextxy(px + (panel_width - textwidth(hint_text)) / 2, py + 190, hint_text);
             }
         }
-        else
+        else // === 主菜单界面的画面渲染层 ===
         {
+            // 贴底层带有树林原画的壁纸
             putimage(0, 0, &img_menu);
-            btn_start_game.Draw();
-            btn_quit_game.Draw();
 
-
-            int preview_x = 140;
-            int preview_y = 60;
-
-            int base_center_x = preview_x + 30;
-            int base_center_y = preview_y + 108;
-
-            if (selected_character == CharacterType::GuangtouQiang)
+            // 【架构重构】：利用多态机制遍历绘制所有按钮
+            for (Button* btn : menu_buttons)
             {
-                base_center_x -= 20;
+                btn->Draw();
             }
 
-            setlinecolor(RGB(255, 200, 50));
-            setlinestyle(PS_SOLID, 2);
-            ellipse(base_center_x - 45, base_center_y - 8, base_center_x + 45, base_center_y + 8);
+            // 定义内联 Lambda 匿名极速工厂闭包：用来绘制带有角色高亮光环和具体配置项的高级展示橱窗 UI
+            auto DrawPreviewUI = [&](int x, int y, CharacterType char_type, LPCTSTR label, LPCTSTR key_hint) {
+                int base_center_x = x + 30;
+                int base_center_y = y + 108;
+                // 光头强的贴图骨骼尺寸原因，视觉重心需要微调硬编码补正
+                if (char_type == CharacterType::GuangtouQiang) base_center_x -= 20;
 
-            setlinecolor(RGB(200, 150, 20));
-            setlinestyle(PS_SOLID, 1);
-            ellipse(base_center_x - 35, base_center_y - 4, base_center_x + 35, base_center_y + 4);
+                // 人物脚下底部的环形科幻选中光斑底座
+                setlinecolor(RGB(255, 200, 50));
+                setlinestyle(PS_SOLID, 2);
+                ellipse(base_center_x - 45, base_center_y - 8, base_center_x + 45, base_center_y + 8);
+                setlinecolor(RGB(200, 150, 20));
+                setlinestyle(PS_SOLID, 1);
+                ellipse(base_center_x - 35, base_center_y - 4, base_center_x + 35, base_center_y + 4);
 
-            POINT old_pos = player->GetPosition();
-            player->SetPosition({ preview_x, preview_y });
-            player->Draw(1000 / 144);
-            player->SetPosition(old_pos);
+                Player* disp = preview_players[(int)char_type];
+                disp->SetPosition({ x, y });
+                disp->Draw(0); // 传入 0 作为 delta，防止菜单界面的角色乱动或走状态机
 
-            int ui_x1 = 40, ui_y1 = 40, ui_x2 = 340, ui_y2 = 300;
-            setlinecolor(RGB(255, 200, 50));
-            setlinestyle(PS_SOLID, 3);
-            int corner_len = 25;
+                // 基于线段拼接实现带缺角的极简风全息科技感瞄准边框定位器
+                int ui_x1 = x - 100, ui_y1 = y - 20, ui_x2 = x + 200, ui_y2 = y + 270;
+                setlinecolor(RGB(255, 200, 50));
+                setlinestyle(PS_SOLID, 3);
+                int corner_len = 25;
+                // 绘制左上角折线
+                line(ui_x1, ui_y1, ui_x1 + corner_len, ui_y1);
+                line(ui_x1, ui_y1, ui_x1, ui_y1 + corner_len);
+                // 绘制右上角折线
+                line(ui_x2 - corner_len, ui_y1, ui_x2, ui_y1);
+                line(ui_x2, ui_y1, ui_x2, ui_y1 + corner_len);
+                // 绘制左下角折线
+                line(ui_x1, ui_y2 - corner_len, ui_x1, ui_y2);
+                line(ui_x1, ui_y2, ui_x1 + corner_len, ui_y2);
+                // 绘制右下角折线
+                line(ui_x2, ui_y2 - corner_len, ui_x2, ui_y2);
+                line(ui_x2 - corner_len, ui_y2, ui_x2, ui_y2);
+                setlinestyle(PS_SOLID, 1);
 
-            line(ui_x1, ui_y1, ui_x1 + corner_len, ui_y1);
-            line(ui_x1, ui_y1, ui_x1, ui_y1 + corner_len);
-            line(ui_x2 - corner_len, ui_y1, ui_x2, ui_y1);
-            line(ui_x2, ui_y1, ui_x2, ui_y1 + corner_len);
-            line(ui_x1, ui_y2 - corner_len, ui_x1, ui_y2);
-            line(ui_x1, ui_y2, ui_x1 + corner_len, ui_y2);
-            line(ui_x2, ui_y2 - corner_len, ui_x2, ui_y2);
-            line(ui_x2 - corner_len, ui_y2, ui_x2, ui_y2);
+                // 信息索引与字面量拼接格式化
+                LPCTSTR name_text = _T("");
+                LPCTSTR desc_text = _T("");
+                if (char_type == CharacterType::XiongDa) {
+                    name_text = _T("角色: 熊 大");
+                    desc_text = _T("定位: 重装战士 | 高血量");
+                }
+                else if (char_type == CharacterType::XiongEr) {
+                    name_text = _T("角色: 熊 二");
+                    desc_text = _T("定位: 敏捷刺客 | 高移速");
+                }
+                else {
+                    name_text = _T("角色: 光头强");
+                    desc_text = _T("定位: 狂战士 | 高输出");
+                }
 
-            setlinestyle(PS_SOLID, 1);
+                TCHAR full_name[64];
+                _stprintf_s(full_name, _T("%s%s"), label, name_text);
 
-            LPCTSTR name_text = _T("");
-            LPCTSTR desc_text = _T("");
-            if (selected_character == CharacterType::XiongDa) {
-                name_text = _T("当前选择: 熊 大");
-                desc_text = _T("定位: 重装战士 | 高血量");
+                // 属性值通过深暗色叠底产生强对比描边，以解决在杂乱背景上看不清文本的问题
+                settextstyle(26, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
+                settextcolor(RGB(20, 20, 20));
+                outtextxy(ui_x1 + 32, ui_y1 + 142, full_name);
+                settextcolor(RGB(255, 200, 50));
+                outtextxy(ui_x1 + 30, ui_y1 + 140, full_name);
+
+                settextstyle(18, 0, _T("黑体"), 0, 0, FW_NORMAL, false, false, false);
+                settextcolor(RGB(20, 20, 20));
+                outtextxy(ui_x1 + 22, ui_y1 + 182, desc_text);
+                settextcolor(RGB(230, 230, 230));
+                outtextxy(ui_x1 + 20, ui_y1 + 180, desc_text);
+
+                settextstyle(20, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
+                settextcolor(RGB(20, 20, 20));
+                outtextxy(ui_x1 + 12, ui_y1 + 227, key_hint);
+                settextcolor(RGB(100, 255, 100));
+                outtextxy(ui_x1 + 10, ui_y1 + 225, key_hint);
+                };
+
+            // 直接调用 Lambda 实现对左右两侧玩家卡牌选修展板的对称化生成渲染
+            DrawPreviewUI(140, 60, selected_character, _T("1P"), _T("[TAB键] 切换 1P 角色"));
+            if (game_mode == 2) {
+                DrawPreviewUI(950, 60, selected_character_p2, _T("2P"), _T("[ Q 键] 切换 2P 角色"));
             }
-            else if (selected_character == CharacterType::XiongEr) {
-                name_text = _T("当前选择: 熊 二");
-                desc_text = _T("定位: 敏捷刺客 | 高移速");
-            }
-            else {
-                name_text = _T("当前选择: 光头强");
-                desc_text = _T("定位: 狂战士 | 脆皮高输出");
-            }
 
+            // 1. 在左侧玩家面板底部提供明确的当前游玩人数环境展示与指示词
+            LPCTSTR mode_txt = game_mode == 1 ? _T("当前模式：单机割草") : _T("当前模式：双人同屏合作");
+            settextstyle(26, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
             setbkmode(TRANSPARENT);
-
-            settextstyle(28, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
             settextcolor(RGB(20, 20, 20));
-            outtextxy(72, 192, name_text);
-            settextcolor(RGB(255, 200, 50));
-            outtextxy(70, 190, name_text);
+            outtextxy(52, 352, mode_txt);
+            settextcolor(game_mode == 1 ? RGB(100, 255, 100) : RGB(255, 150, 50));
+            outtextxy(50, 350, mode_txt);
 
-            settextstyle(18, 0, _T("黑体"), 0, 0, FW_NORMAL, false, false, false);
-            settextcolor(RGB(20, 20, 20));
-            outtextxy(62, 232, desc_text);
-            settextcolor(RGB(230, 230, 230));
-            outtextxy(60, 230, desc_text);
-
+            // 2. 提供 Y 键模式切换器反馈的文字说明与指引
             settextstyle(20, 0, _T("黑体"), 0, 0, FW_BOLD, false, false, false);
             settextcolor(RGB(20, 20, 20));
-            outtextxy(52, 277, _T("[按下 TAB 键切换角色]"));
-            settextcolor(RGB(100, 255, 100));
-            outtextxy(50, 275, _T("[按下 TAB 键切换角色]"));
+            outtextxy(52, 392, _T("[按下 Y 键切换单/双人模式]"));
+            settextcolor(RGB(100, 200, 255));
+            outtextxy(50, 390, _T("[按下 Y 键切换单/双人模式]"));
 
+            // 绘制左上侧悬空的难度调节交互区与方块按钮
             int diff_btn_w = 160;
             int diff_btn_h = 50;
             int diff_btn_x = WINDOW_WIDTH - diff_btn_w - 40;
@@ -1130,6 +1349,7 @@ int main()
 
             LPCTSTR diff_text = _T("");
             COLORREF diff_color = RGB(255, 255, 255);
+            // 将难度逻辑反馈到前段颜色，辅助加强认知交互：绿->黄->红 危险梯度上升
             if (current_difficulty == Difficulty::Easy) {
                 diff_text = _T("难度: 简 单");
                 diff_color = RGB(100, 255, 100);
@@ -1155,6 +1375,7 @@ int main()
             settextcolor(diff_color);
             outtextxy(tx, ty, diff_text);
 
+            // 在最底端的横切向中轴绘制基于本地存档 IO 取出的大满贯荣誉信息
             TCHAR history_text[128];
             _stprintf_s(history_text, _T(" 历史最高纪录 - 分数: %d 罐   存活: %d 秒 👑"), high_score, high_survival_time);
 
@@ -1171,8 +1392,12 @@ int main()
             outtextxy(hx, hy, history_text);
         }
 
+        // ================= 帧结尾操作：将后台构建好的整张画布显式投屏 =================
         FlushBatchDraw();
 
+        // 帧率锁 (FPS Limiter)
+        // 提取本帧总计耗费计算时间差，若系统处理过快导致耗时小于标定值 (即 144Hz 每帧约 6.94 毫秒)
+        // 则强制调用系统级别 API 进行线程休眠挂盖等待补充，以防画面撕裂与逻辑倍速运行
         DWORD end_time = GetTickCount();
         DWORD delta_time = end_time - start_time;
         if (delta_time < 1000 / 144)
@@ -1181,10 +1406,40 @@ int main()
         }
     }
 
-    delete atlas_player_left;
-    delete atlas_player_right;
-    delete atlas_enemy_left;
+    // 主循环结束，进行善后与析构对象
+    delete atlas_xiongda_left;  
+    delete atlas_xiongda_right;
+    delete atlas_xionger_left;  
+    delete atlas_xionger_right;
+    delete atlas_qiang_left;    
+    delete atlas_qiang_right;
+    delete atlas_enemy_left;    
     delete atlas_enemy_right;
+    delete atlas_machine_left; 
+    delete atlas_machine_right;
+    delete atlas_boss_left;     
+    delete atlas_boss_right;
+
+    for (Player* p : players) 
+        delete p;
+    players.clear();
+    for (Enemy* enemy : enemy_list) 
+        delete enemy;
+    enemy_list.clear();
+
+    // 释放预览池
+    for (int i = 0; i < 3; i++) {
+        delete preview_players[i];
+    }
+
+    // 触发多态销毁，安全释放堆区内存
+    for (Button* btn : menu_buttons)
+    {
+        delete btn;
+    }
+    menu_buttons.clear();
+    
+    mciSendString(_T("close all"), NULL, 0, NULL);
 
     EndBatchDraw();
     return 0;

@@ -1,29 +1,31 @@
 #pragma once
 #include "Enemy.h"
 
-// 各梯队敌对实体的派生类声明
+// 敌方具体怪物类别聚合声明
 
-// 普通敌对实体
+// 基础型近战伐木工：中等属性，常规行为
 class NormalEnemy : public Enemy
 {
 public:
     NormalEnemy();
 };
 
-// 强化精英敌对实体
+// 进阶型机械载具怪：高血量高伤害，拥有更大的视觉碰撞体积
 class MachineEnemy : public Enemy
 {
 public:
     MachineEnemy();
 };
 
-// 首领级别敌对实体
+// 游戏最终首领：黑化光头强，具备超大体积以及极高抗击退质量，并附带召唤随从的特殊机制
 class BossEnemy : public Enemy
 {
 public:
     BossEnemy();
-    // 覆盖基类方法以实现独占的运动及召唤系统
-    void Move(const Player& player, vector<Enemy*>& enemy_list) override;
+
+    // 添加 override 关键字，指明覆盖重写基类的寻路算法
+    void Move(const vector<Player*>& players, vector<Enemy*>& enemy_list) override;
+
 private:
-    DWORD last_summon_time = 0; // 控制衍生召唤的时间锁
+    DWORD last_summon_time = 0; // Boss 独占的随从招募时间锁
 };

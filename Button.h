@@ -4,40 +4,40 @@
 #include "common.h"
 using namespace std;
 
-// 交互式 UI 控件抽象基类
+// UI 控件基础框架：提供事件驱动机制与三态图像展示功能的交互按钮基类
 class Button
 {
 public:
-    // 构造参数配置：响应区域范围, 空闲状态图元, 悬浮状态图元, 按压状态图元
+    // 构造注入：响应盒模型坐标、常态贴图、悬浮高亮贴图、按压激活贴图
     Button(RECT rect, LPCTSTR path_img_idle, LPCTSTR path_img_hovered, LPCTSTR path_img_pushed);
-    ~Button();
+    virtual ~Button();
 
-    // 输入事件流处理模块
+    // 接收系统派发的鼠标外设结构体，执行状态机运算
     void ProcessEvent(const ExMessage& msg);
 
-    // 控件图像帧渲染管线
+    // 调用贴图模块向显示缓冲投射当前枚举阶段匹配的材质
     void Draw();
 
 protected:
-    // 点击事件触发回调接口定义，供继承方实现
+    // 事件回调勾子：纯虚函数，强约束要求派生类实现具体的业务流触发逻辑
     virtual void OnClick() = 0;
 
 private:
-    // 按钮状态机定义枚举
+    // 枚举化控制按钮内部的三段式流转体系
     enum class Status
     {
-        Idle = 0,    // 默认待机状态
-        Hovered,     // 指针悬停状态
-        Pushed       // 点击按压状态
+        Idle = 0,    // 默认游离态
+        Hovered,     // 光标接触悬停态
+        Pushed       // 左键下压激活态
     };
 
 private:
-    RECT region;                   // 事件有效响应边界
-    IMAGE img_idle;                // 待机纹理映射
-    IMAGE img_hovered;             // 悬浮纹理映射
-    IMAGE img_pushed;              // 按压纹理映射
-    Status status = Status::Idle;  // 状态机记录器
+    RECT region;                   // GUI 响应作用域
+    IMAGE img_idle;                // 闲置图层实体
+    IMAGE img_hovered;             // 触碰图层实体
+    IMAGE img_pushed;              // 按击图层实体
+    Status status = Status::Idle;  // 初始化起始态
 
-    // 矩形边界碰撞检测方法
-    bool CheckCursorHit(int x, int y);
+    // AABB 盒碰撞检测：【优化】标记为 const 以保证此探测方法绝对独立，不会篡改类结构
+    bool CheckCursorHit(int x, int y) const;
 };

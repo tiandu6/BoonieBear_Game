@@ -4,14 +4,18 @@
 #include <vector>
 using namespace std;
 
-// 图集类：管理一组连续的动画帧图片
+// 序列帧图集数据层容器：负责将磁盘上的图片序列载入显存并进行批处理
 class Atlas
 {
 public:
-    // 构造函数：path为图片路径模板（含%d），num为帧数量，width/height为帧尺寸（0则用原图尺寸），flip_h为是否水平翻转
+    // 构造参数说明：
+    // path: 文件路径格式化模板（如 "img_%d.png"）
+    // num: 序列帧总数
+    // width/height: 指定缩放尺寸（传 0 则保留图像原始分辨率）
+    // flip_h: 布尔开关，标识是否在加载时进行水平镜像翻转预处理
     Atlas(LPCTSTR path, int num, int width = 0, int height = 0, bool flip_h = false);
     ~Atlas();
 
 public:
-    vector<IMAGE*> frame_list;  // 存储所有帧图片
+    vector<IMAGE*> frame_list;  // 显存图元池：存储所有处理完毕的帧实体指针
 };

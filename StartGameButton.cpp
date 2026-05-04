@@ -4,12 +4,11 @@
 StartGameButton::StartGameButton(RECT rect, LPCTSTR path_img_idle, LPCTSTR path_img_hovered, LPCTSTR path_img_pushed)
     :Button(rect, path_img_idle, path_img_hovered, path_img_pushed)
 {
-
 }
 
 StartGameButton::~StartGameButton() = default;
 
-// 配置状态切换器转入核心运行进程图景
+// 触发器回调：点击开始后，开启主逻辑运行的标志位，进入核心战斗图景
 void StartGameButton::OnClick()
 {
     is_game_started = true;
