@@ -22,24 +22,35 @@ void Button::ProcessEvent(const ExMessage& msg)
 {
     switch (msg.message)
     {
-    case WM_MOUSEMOVE: // 捕获光标无按键位移事件
-        // 当光标进入边界时切为悬浮，离开边界则回退为空闲
+    case WM_MOUSEMOVE:
+        // 处理悬停状态
         if (status == Status::Idle && CheckCursorHit(msg.x, msg.y))
             status = Status::Hovered;
         else if (status == Status::Hovered && !CheckCursorHit(msg.x, msg.y))
             status = Status::Idle;
         break;
 
-    case WM_LBUTTONDOWN: // 捕获左键下压动作
-        // 验证锚点合法性后进入压燃状态
+    case WM_LBUTTONDOWN:
+        // 只有在按钮内部按下，状态才变为 Pushed
         if (CheckCursorHit(msg.x, msg.y))
             status = Status::Pushed;
         break;
 
-    case WM_LBUTTONUP: // 捕获左键抬起动作
-        // 唯有经历过正确按压流程的控件，在释放瞬间才能触发有效击发逻辑
+    case WM_LBUTTONUP:
+        // 只有当前是 Pushed 状态时，才处理松开逻辑
         if (status == Status::Pushed)
-            OnClick();
+        {
+            // 判断松开时，鼠标是不是还在按钮内部？如果在，才算有效点击！
+            if (CheckCursorHit(msg.x, msg.y))
+            {
+                OnClick();
+                status = Status::Hovered; // 点击完，状态退回悬停
+            }
+            else
+            {
+                status = Status::Idle;    // 如果鼠标按住拖到按钮外面松开，算作取消点击，退回空闲
+            }
+        }
         break;
 
     default:
