@@ -1377,7 +1377,7 @@ int main()
 
             // 在最底端的横切向中轴绘制基于本地存档 IO 取出的大满贯荣誉信息
             TCHAR history_text[128];
-            _stprintf_s(history_text, _T(" 历史最高纪录 - 分数: %d 罐   存活: %d 秒 👑"), high_score, high_survival_time);
+            _stprintf_s(history_text, _T(" 历史最高纪录 - 分数: %d 分   存活: %d 秒 👑"), high_score, high_survival_time);
 
             settextstyle(24, 0, _T("微软雅黑"), 0, 0, FW_BOLD, false, false, false);
             setbkmode(TRANSPARENT);
